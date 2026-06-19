@@ -69,13 +69,17 @@ test('full round plays out to a scored result with points conserved', () => {
   s = applyAction(s, { type: 'declareContract', seat: 0, contract: { type: 'grand' } });
   assert.equal(s.phase, 'playing');
 
-  // Auto-play: always play the first legal card.
+  // Auto-play: always play the first legal card, collecting completed tricks.
   let guard = 0;
   while (s.phase === 'playing') {
-    const options = legalCards(s, s.turn);
-    assert.ok(options.length > 0, 'a player on turn always has a legal card');
-    s = applyAction(s, { type: 'playCard', seat: s.turn, card: options[0] });
-    if (++guard > 40) throw new Error('play did not terminate');
+    if (s.trickComplete) {
+      s = applyAction(s, { type: 'collect' });
+    } else {
+      const options = legalCards(s, s.turn);
+      assert.ok(options.length > 0, 'a player on turn always has a legal card');
+      s = applyAction(s, { type: 'playCard', seat: s.turn, card: options[0] });
+    }
+    if (++guard > 60) throw new Error('play did not terminate');
   }
 
   assert.equal(s.phase, 'finished');

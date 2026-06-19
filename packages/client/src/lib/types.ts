@@ -20,9 +20,19 @@ export interface PlayerView {
   you: boolean;
 }
 
+export interface HistoryEntry {
+  deal: number;
+  declarerSlot: number | null;
+  short: string | null;
+  won: boolean | null;
+  value: number;
+  passedIn: boolean;
+  scores: number[];
+}
+
 export interface RoundView {
   phase: 'bidding' | 'declaring' | 'playing' | 'finished';
-  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number };
+  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null };
   declarerSlot: number | null;
   bid: number;
   tookSkat: boolean;
@@ -32,6 +42,9 @@ export interface RoundView {
   turnSlot: number;
   leaderSlot: number;
   trick: { slot: number; card: Card }[];
+  trickComplete: boolean;
+  lastTrick: { slot: number; card: Card }[];
+  lastTrickWinnerSlot: number | null;
   trickCount: number;
   handCounts: number[];
   yourHand: Card[];
@@ -52,4 +65,5 @@ export interface TableView {
   match: { scores: number[]; dealsPlayed: number; finished: boolean; winner: number | null } | null;
   round?: RoundView;
   chat: { nick: string; text: string }[];
+  history: HistoryEntry[];
 }

@@ -4,6 +4,13 @@
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
   import Chat from './Chat.svelte';
+  import History from './History.svelte';
+
+  let hintsOpen = $state(localStorage.getItem('liskat.hints') !== 'closed');
+  function toggleHints() {
+    hintsOpen = !hintsOpen;
+    localStorage.setItem('liskat.hints', hintsOpen ? 'open' : 'closed');
+  }
 
   const view = $derived($conn.view as TableView);
   const round = $derived(view?.round);
@@ -27,7 +34,7 @@
 
   function isMyTurn(): boolean {
     if (!round) return false;
-    if (round.phase === 'playing') return round.turnSlot === mySlot;
+    if (round.phase === 'playing') return round.turnSlot === mySlot && !round.trickComplete;
     if (round.phase === 'bidding') {
       const b = round.bidding!;
       return b.awaiting === 'response' ? b.responderSlot === mySlot : b.askerSlot === mySlot;
@@ -90,13 +97,19 @@
 
 {#snippet hints()}
   <div class="hints">
-    <div class="hline"><b>Game values:</b> ♦ 9 · ♥ 10 · ♠ 11 · ♣ 12 · Grand 24 · Null 23</div>
-    <ul>
-      <li><b>Suit</b> — that suit plus all four Jacks are trumps</li>
-      <li><b>Grand</b> — only the four Jacks are trumps</li>
-      <li><b>Null</b> — no trumps; you win by losing every trick</li>
-    </ul>
-    <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
+    <button class="hint-toggle" onclick={toggleHints}>{hintsOpen ? '▾' : '▸'} Game hints</button>
+    {#if hintsOpen}
+      <div class="hint-body">
+        <div class="hline"><b>Game values:</b> ♦ 9 · ♥ 10 · ♠ 11 · ♣ 12 · Grand 24 · Null 23</div>
+        <ul>
+          <li><b>Suit</b> — that suit plus all four Jacks are trumps</li>
+          <li><b>Grand</b> — only the four Jacks are trumps</li>
+          <li><b>Null</b> — no trumps; you win by losing every trick</li>
+          <li><b>Ouvert</b> — play with your hand face-up for a higher value. Null Ouvert is common; a suit/grand Ouvert must also be played (and announced) for Schwarz.</li>
+        </ul>
+        <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
+      </div>
+    {/if}
   </div>
 {/snippet}
 
@@ -163,8 +176,11 @@
           </div>
         {:else if round?.phase === 'bidding'}
           <div class="panel bidding">
-            <div class="bignum">{round.bidding!.currentBid > 0 ? round.bidding!.currentBid : '—'}</div>
-            <div class="caption">current bid</div>
+            {#if round.bidding!.currentBid > 0}
+              <div class="bidphrase">{slotName(round.bidding!.lastBidderSlot ?? 0)} bid <span class="bignum">{round.bidding!.currentBid}</span></div>
+            {:else}
+              <div class="caption">no bid yet</div>
+            {/if}
 
             {#if isMyTurn()}
               {#if round.bidding!.awaiting === 'response'}
@@ -208,12 +224,12 @@
               {:else if round.declareStep === 'contract'}
                 <h3>Choose your game</h3>
                 <div class="contracts">
-                  <button onclick={() => declare({ type: 'suit', suit: 'C' })} title="Clubs — base 12">♣</button>
-                  <button onclick={() => declare({ type: 'suit', suit: 'S' })} title="Spades — base 11">♠</button>
-                  <button class="red" onclick={() => declare({ type: 'suit', suit: 'H' })} title="Hearts — base 10">♥</button>
-                  <button class="red" onclick={() => declare({ type: 'suit', suit: 'D' })} title="Diamonds — base 9">♦</button>
-                  <button onclick={() => declare({ type: 'grand' })} title="Only Jacks are trumps — base 24">Grand</button>
-                  <button onclick={() => declare({ type: 'null' })} title="Lose every trick — value 23">Null</button>
+                  <button class="game" onclick={() => declare({ type: 'null' })} title="Lose every trick — value 23">Null</button>
+                  <button class="suit" style="color:#e6820a" onclick={() => declare({ type: 'suit', suit: 'D' })} title="Diamonds — base 9">♦</button>
+                  <button class="suit" style="color:#d11" onclick={() => declare({ type: 'suit', suit: 'H' })} title="Hearts — base 10">♥</button>
+                  <button class="suit" style="color:#1f7a1f" onclick={() => declare({ type: 'suit', suit: 'S' })} title="Spades — base 11">♠</button>
+                  <button class="suit" style="color:#1a1a1a" onclick={() => declare({ type: 'suit', suit: 'C' })} title="Clubs — base 12">♣</button>
+                  <button class="game" onclick={() => declare({ type: 'grand' })} title="Only Jacks are trumps — base 24">Grand</button>
                 </div>
                 <div class="anns">
                   {#if round.tookSkat === false}
@@ -239,7 +255,7 @@
       <!-- My hand -->
       <div class="myseat" class:turn={isMyTurn()}>
         <div class="who">
-          <strong>{me?.nick} (you)</strong>
+          <strong>{me?.nick}</strong>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing'}
@@ -269,6 +285,19 @@
         </div>
       {/if}
 
+      {#if round && round.lastTrick.length === 3}
+        <div class="lasttrick">
+          <div class="lt-label">last trick</div>
+          <div class="lt-cards">
+            {#each round.lastTrick as t}<CardView card={t.card} width={46} />{/each}
+          </div>
+          {#if round.lastTrickWinnerSlot !== null}
+            <div class="lt-won">won by {slotName(round.lastTrickWinnerSlot)}</div>
+          {/if}
+        </div>
+      {/if}
+
+      <History history={view.history} players={view.players} />
       <Chat messages={view.chat} />
     {/if}
 
@@ -374,17 +403,24 @@
     padding: 22px 28px;
     max-width: 520px;
   }
+  .bidphrase {
+    font-size: 28px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
   .bignum {
-    font-size: 76px;
+    font-size: 52px;
     font-weight: 800;
     line-height: 1;
     color: #ffd54a;
+    vertical-align: -8px;
+    margin-left: 6px;
   }
   .caption {
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: 2px;
-    font-size: 12px;
+    font-size: 13px;
     margin-bottom: 12px;
   }
   .prompt {
@@ -415,8 +451,14 @@
     padding: 10px 16px;
     min-width: 60px;
   }
-  .contracts .red {
-    color: #ff6b6b;
+  .contracts .suit {
+    background: #fffdf7;
+    font-size: 26px;
+    line-height: 1;
+  }
+  .contracts .suit:hover {
+    background: #fff;
+    transform: translateY(-2px);
   }
   .anns {
     display: flex;
@@ -426,15 +468,53 @@
   }
   .hints {
     margin-top: 14px;
-    padding-top: 12px;
+    padding-top: 10px;
     border-top: 1px solid rgba(255, 255, 255, 0.1);
     font-size: 13px;
     color: var(--muted);
     text-align: left;
   }
+  .hint-toggle {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0;
+  }
+  .hint-body {
+    margin-top: 6px;
+  }
   .hints ul {
     margin: 6px 0;
     padding-left: 18px;
+  }
+  .hints li {
+    margin: 3px 0;
+  }
+  .lasttrick {
+    position: fixed;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    text-align: center;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 10px;
+    backdrop-filter: blur(6px);
+  }
+  .lt-label,
+  .lt-won {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .lt-cards {
+    display: flex;
+    gap: 3px;
+    margin: 6px 0;
   }
   .hline {
     margin: 3px 0;

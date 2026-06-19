@@ -20,6 +20,17 @@ import {
 import type { ClientAction } from './protocol.ts';
 
 const BETWEEN_DEALS_MS = 6000;
+const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table before it is swept
+
+export interface HistoryEntry {
+  deal: number;
+  declarerSlot: number | null;
+  short: string | null; // ♦ ♥ ♠ ♣ G N, or null for a passed deal
+  won: boolean | null;
+  value: number;
+  passedIn: boolean;
+  scores: number[]; // running totals after this deal
+}
 
 export type TableStatus = 'waiting' | 'playing' | 'between' | 'over';
 
@@ -43,6 +54,7 @@ export class Table {
   round: RoundState | null = null;
   dealIndex = 0;
   chat: { nick: string; text: string }[] = [];
+  history: HistoryEntry[] = [];
 
   // Injected so the server can re-send views whenever something changes.
   onChange: () => void = () => {};
@@ -117,21 +129,42 @@ export class Table {
     const role = roleOfSlot(slot, this.dealIndex);
 
     const action = { ...ca, seat: role } as Action;
-    let next: RoundState;
     try {
-      next = applyAction(this.round, action);
+      this.round = applyAction(this.round, action);
     } catch (e) {
       return (e as Error).message;
     }
-    this.round = next;
-
-    if (next.phase === 'finished') this.endRound();
+    this.advance();
     return null;
+  }
+
+  // Drives automatic transitions: a completed trick is revealed briefly then
+  // collected; a finished round is recorded and the next deal scheduled.
+  private advance(): void {
+    const r = this.round!;
+    if (r.phase === 'playing' && r.trickComplete) {
+      this.schedule(() => {
+        this.round = applyAction(this.round!, { type: 'collect' });
+        if (this.round.phase === 'finished') this.endRound();
+        this.onChange();
+      }, TRICK_REVEAL_MS);
+    } else if (r.phase === 'finished') {
+      this.endRound();
+    }
   }
 
   private endRound(): void {
     const r = this.round!;
     recordRoundIntoMatch(this, r);
+    this.history.push({
+      deal: this.dealIndex + 1,
+      declarerSlot: r.passedIn || r.declarer === null ? null : slotOfRole(r.declarer, this.dealIndex),
+      short: r.passedIn ? null : shortContract(r.contract),
+      won: r.passedIn ? null : (r.result?.won ?? null),
+      value: r.result?.value ?? 0,
+      passedIn: r.passedIn,
+      scores: [...this.match!.scores],
+    });
     this.status = 'between';
     this.schedule(() => {
       this.dealIndex += 1;
@@ -182,6 +215,7 @@ export class Table {
                 askerSlot: slotOfRole(r.bidding.asker, this.dealIndex),
                 responderSlot: r.bidding.responder === null ? null : slotOfRole(r.bidding.responder, this.dealIndex),
                 currentBid: r.bidding.currentBid,
+                lastBidderSlot: r.bidding.lastBidderSeat === null ? null : slotOfRole(r.bidding.lastBidderSeat, this.dealIndex),
               }
             : undefined,
         declarerSlot: r.declarer === null ? null : slotOfRole(r.declarer, this.dealIndex),
@@ -193,6 +227,9 @@ export class Table {
         turnSlot: slotOfRole(r.turn, this.dealIndex),
         leaderSlot: slotOfRole(r.leader, this.dealIndex),
         trick: r.trick.map((t) => ({ slot: slotOfRole(t.seat, this.dealIndex), card: t.card })),
+        trickComplete: r.trickComplete,
+        lastTrick: r.lastTrick.map((t) => ({ slot: slotOfRole(t.seat, this.dealIndex), card: t.card })),
+        lastTrickWinnerSlot: r.lastTrickWinner === null ? null : slotOfRole(r.lastTrickWinner, this.dealIndex),
         trickCount: r.trickCount,
         handCounts: [r.hands[0].length, r.hands[1].length, r.hands[2].length],
         yourHand: myRole !== null ? r.hands[myRole].slice() : [],
@@ -214,12 +251,20 @@ export class Table {
       match: this.match ? { scores: this.match.scores, dealsPlayed: this.match.dealsPlayed, finished: this.match.finished, winner: this.match.winner } : null,
       round,
       chat: this.chat.slice(),
+      history: this.history.slice(),
     };
   }
 }
 
 function recordRoundIntoMatch(table: Table, r: RoundState): void {
   table.match = recordRound(table.match!, table.dealIndex, r.passedIn ? null : r.declarer, r.passedIn ? null : r.result);
+}
+
+function shortContract(c: RoundState['contract']): string | null {
+  if (!c) return null;
+  if (c.type === 'grand') return 'G';
+  if (c.type === 'null') return 'N';
+  return { C: '♣', S: '♠', H: '♥', D: '♦' }[c.suit];
 }
 
 // ---- View shapes -----------------------------------------------------------
@@ -235,11 +280,12 @@ export interface TableView {
   match: { scores: number[]; dealsPlayed: number; finished: boolean; winner: number | null } | null;
   round?: RoundView;
   chat: { nick: string; text: string }[];
+  history: HistoryEntry[];
 }
 
 export interface RoundView {
   phase: RoundState['phase'];
-  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number };
+  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null };
   declarerSlot: number | null;
   bid: number;
   tookSkat: boolean;
@@ -249,6 +295,9 @@ export interface RoundView {
   turnSlot: number;
   leaderSlot: number;
   trick: { slot: number; card: Card }[];
+  trickComplete: boolean;
+  lastTrick: { slot: number; card: Card }[];
+  lastTrickWinnerSlot: number | null;
   trickCount: number;
   handCounts: number[];
   yourHand: Card[];

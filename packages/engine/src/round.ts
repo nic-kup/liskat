@@ -27,6 +27,7 @@ interface BiddingState {
   currentBid: number;
   passed: [boolean, boolean, boolean];
   stage1Winner: Seat | null;
+  lastBidderSeat: Seat | null; // who named the current bid value
 }
 
 export type DeclareStep = 'choose' | 'discard' | 'contract' | 'done';
@@ -49,6 +50,10 @@ export interface RoundState {
   leader: Seat;
   turn: Seat;
   trick: { seat: Seat; card: Card }[];
+  trickComplete: boolean; // all three cards played, awaiting collection
+  trickWinnerSeat: Seat | null; // winner of the completed-but-uncollected trick
+  lastTrick: { seat: Seat; card: Card }[]; // the previous, collected trick (for display)
+  lastTrickWinner: Seat | null;
   trickCount: number;
   declarerTrickPoints: Card[];
   defenderTrickPoints: Card[];
@@ -67,7 +72,8 @@ export type Action =
   | { type: 'playHand'; seat: Seat }
   | { type: 'discard'; seat: Seat; cards: [Card, Card] }
   | { type: 'declareContract'; seat: Seat; contract: Contract; announcements?: Partial<Announcements> }
-  | { type: 'playCard'; seat: Seat; card: Card };
+  | { type: 'playCard'; seat: Seat; card: Card }
+  | { type: 'collect' }; // sweep the completed trick to its winner (no seat: a presentation step)
 
 const NEXT: Record<Seat, Seat> = { 0: 1, 1: 2, 2: 0 };
 const NO_ANN: Announcements = { hand: false, schneiderAnnounced: false, schwarzAnnounced: false, ouvert: false };
@@ -85,6 +91,7 @@ export function createRound(d: Deal): RoundState {
       currentBid: 0,
       passed: [false, false, false],
       stage1Winner: null,
+      lastBidderSeat: null,
     },
     declarer: null,
     bid: 0,
@@ -96,6 +103,10 @@ export function createRound(d: Deal): RoundState {
     leader: 0,
     turn: 0,
     trick: [],
+    trickComplete: false,
+    trickWinnerSeat: null,
+    lastTrick: [],
+    lastTrickWinner: null,
     trickCount: 0,
     declarerTrickPoints: [],
     defenderTrickPoints: [],
@@ -118,6 +129,7 @@ function clone(s: RoundState): RoundState {
     bidding: { ...s.bidding, passed: [...s.bidding.passed] as [boolean, boolean, boolean] },
     announcements: { ...s.announcements },
     trick: s.trick.slice(),
+    lastTrick: s.lastTrick.slice(),
     declarerTrickPoints: s.declarerTrickPoints.slice(),
     defenderTrickPoints: s.defenderTrickPoints.slice(),
     declarerGameCards: s.declarerGameCards.slice(),
@@ -146,6 +158,7 @@ function applyBidding(s: RoundState, a: Action): RoundState {
     if (a.seat !== 0) fail('only forehand decides here');
     if (a.type === 'bid') {
       if (!isLegalBid(a.value)) fail('not a legal bid value');
+      s.bidding.lastBidderSeat = 0;
       s.declarer = 0;
       s.bid = a.value;
       return enterDeclaring(s);
@@ -164,6 +177,7 @@ function applyBidding(s: RoundState, a: Action): RoundState {
     if (!isLegalBid(a.value)) fail('not a legal bid value');
     if (a.value <= b.currentBid) fail('bid must be higher');
     b.currentBid = a.value;
+    b.lastBidderSeat = a.seat;
     b.awaiting = 'response';
     return s;
   }
@@ -298,7 +312,7 @@ function validateAnnouncements(s: RoundState, contract: Contract, ann: Announcem
 
 // The cards the player at `seat` is allowed to play right now.
 export function legalCards(s: RoundState, seat: Seat): Card[] {
-  if (s.phase !== 'playing' || seat !== s.turn) return [];
+  if (s.phase !== 'playing' || s.trickComplete || seat !== s.turn) return [];
   const hand = s.hands[seat];
   if (s.trick.length === 0) return hand.slice();
   const led = leadSuit(s.trick[0].card, s.contract!);
@@ -307,7 +321,9 @@ export function legalCards(s: RoundState, seat: Seat): Card[] {
 }
 
 function applyPlaying(s: RoundState, a: Action): RoundState {
+  if (a.type === 'collect') return collectTrick(s);
   if (a.type !== 'playCard') fail('only card play is allowed now');
+  if (s.trickComplete) fail('the completed trick must be collected first');
   if (a.seat !== s.turn) fail('not your turn');
   const legal = legalCards(s, a.seat);
   if (!legal.some((c) => cardsEqual(c, a.card))) fail('that card is not playable (must follow suit)');
@@ -321,9 +337,18 @@ function applyPlaying(s: RoundState, a: Action): RoundState {
     return s;
   }
 
-  // Complete trick: resolve the winner.
+  // Third card: the trick is complete but stays on the table until collected,
+  // so the winning play is visible for a beat.
   const winIdx = trickWinner(s.trick.map((t) => t.card), s.contract!);
-  const winnerSeat = s.trick[winIdx].seat;
+  s.trickWinnerSeat = s.trick[winIdx].seat;
+  s.trickComplete = true;
+  return s;
+}
+
+// Sweeps a completed trick to its winner and sets up the next lead.
+function collectTrick(s: RoundState): RoundState {
+  if (!s.trickComplete || s.trickWinnerSeat === null) fail('no completed trick to collect');
+  const winnerSeat = s.trickWinnerSeat;
   const cards = s.trick.map((t) => t.card);
   if (winnerSeat === s.declarer) {
     s.declarerTrickPoints.push(...cards);
@@ -332,7 +357,11 @@ function applyPlaying(s: RoundState, a: Action): RoundState {
     s.defenderTrickPoints.push(...cards);
     s.defenderTricksWon += 1;
   }
+  s.lastTrick = s.trick.map((t) => ({ seat: t.seat, card: t.card }));
+  s.lastTrickWinner = winnerSeat;
   s.trick = [];
+  s.trickComplete = false;
+  s.trickWinnerSeat = null;
   s.leader = winnerSeat;
   s.turn = winnerSeat;
   s.trickCount += 1;
