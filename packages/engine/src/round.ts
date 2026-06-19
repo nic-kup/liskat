@@ -19,6 +19,12 @@ import type { Deal } from './deal.ts';
 
 export type Phase = 'bidding' | 'declaring' | 'playing' | 'finished';
 
+// Each player's most recent utterance in the auction, for display under them.
+export interface BidAnnounce {
+  kind: 'bid' | 'hold' | 'pass';
+  value?: number;
+}
+
 interface BiddingState {
   stage: 1 | 2;
   asker: Seat;
@@ -28,6 +34,7 @@ interface BiddingState {
   passed: [boolean, boolean, boolean];
   stage1Winner: Seat | null;
   lastBidderSeat: Seat | null; // who named the current bid value
+  lastActions: (BidAnnounce | null)[]; // indexed by seat
 }
 
 export type DeclareStep = 'choose' | 'discard' | 'contract' | 'done';
@@ -92,6 +99,7 @@ export function createRound(d: Deal): RoundState {
       passed: [false, false, false],
       stage1Winner: null,
       lastBidderSeat: null,
+      lastActions: [null, null, null],
     },
     declarer: null,
     bid: 0,
@@ -126,7 +134,7 @@ function clone(s: RoundState): RoundState {
   return {
     ...s,
     hands: [s.hands[0].slice(), s.hands[1].slice(), s.hands[2].slice()],
-    bidding: { ...s.bidding, passed: [...s.bidding.passed] as [boolean, boolean, boolean] },
+    bidding: { ...s.bidding, passed: [...s.bidding.passed] as [boolean, boolean, boolean], lastActions: [...s.bidding.lastActions] },
     announcements: { ...s.announcements },
     trick: s.trick.slice(),
     lastTrick: s.lastTrick.slice(),
@@ -159,6 +167,7 @@ function applyBidding(s: RoundState, a: Action): RoundState {
     if (a.type === 'bid') {
       if (!isLegalBid(a.value)) fail('not a legal bid value');
       s.bidding.lastBidderSeat = 0;
+      s.bidding.lastActions[0] = { kind: 'bid', value: a.value };
       s.declarer = 0;
       s.bid = a.value;
       return enterDeclaring(s);
@@ -178,6 +187,7 @@ function applyBidding(s: RoundState, a: Action): RoundState {
     if (a.value <= b.currentBid) fail('bid must be higher');
     b.currentBid = a.value;
     b.lastBidderSeat = a.seat;
+    b.lastActions[a.seat] = { kind: 'bid', value: a.value };
     b.awaiting = 'response';
     return s;
   }
@@ -185,6 +195,7 @@ function applyBidding(s: RoundState, a: Action): RoundState {
   if (a.type === 'hold') {
     if (b.awaiting !== 'response') fail('nothing to hold');
     if (a.seat !== b.responder) fail('not the responder');
+    b.lastActions[a.seat] = { kind: 'hold', value: b.currentBid };
     b.awaiting = 'call'; // asker must now raise or pass
     return s;
   }
@@ -192,11 +203,13 @@ function applyBidding(s: RoundState, a: Action): RoundState {
   if (a.type === 'pass') {
     if (b.awaiting === 'call') {
       if (a.seat !== b.asker) fail('not the asker');
+      b.lastActions[a.seat] = { kind: 'pass' };
       // asker concedes: the responder wins this stage at currentBid
       return resolveStage(s, b.responder!);
     }
     if (b.awaiting === 'response') {
       if (a.seat !== b.responder) fail('not the responder');
+      b.lastActions[a.seat] = { kind: 'pass' };
       // responder concedes: the asker wins this stage at currentBid
       return resolveStage(s, b.asker);
     }

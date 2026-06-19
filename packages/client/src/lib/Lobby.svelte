@@ -44,7 +44,8 @@
   listTables();
 </script>
 
-<div class="brand">liskat</div>
+<div class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3;">liskat</div>
+<div class="topright"><Feedback /></div>
 
 <div class="lobby">
   <section class="quick">
@@ -95,19 +96,14 @@
 
   <footer>
     <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
-    <span class="feedback"><Feedback /> · or email <a href="mailto:feedback@liskat.com">feedback@liskat.com</a></span>
   </footer>
 </div>
 
 <style>
-  .brand {
+  .topright {
     position: fixed;
-    top: 16px;
-    left: 20px;
-    font-size: 26px;
-    font-weight: 800;
-    letter-spacing: 0.5px;
-    color: #f2f5f3;
+    top: 20px;
+    right: 20px;
   }
   .lobby {
     max-width: 560px;
@@ -237,14 +233,8 @@
     margin-top: 20px;
     font-size: 12px;
     color: var(--muted);
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
   }
   footer .on {
     color: #7fe3a3;
-  }
-  footer .feedback a {
-    color: var(--muted);
   }
 </style>

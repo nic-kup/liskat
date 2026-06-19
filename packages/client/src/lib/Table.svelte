@@ -19,6 +19,13 @@
   const opponents = $derived(view ? view.players.filter((p) => p.slot !== mySlot) : []);
   const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
 
+  // The seat currently "speaking" during the auction (for highlighting).
+  const bidActiveSlot = $derived.by(() => {
+    if (round?.phase !== 'bidding' || !round.bidding) return -1;
+    const b = round.bidding;
+    return b.awaiting === 'response' ? b.responderSlot ?? -1 : b.askerSlot;
+  });
+
   let selected = $state<string[]>([]);
   let annSchneider = $state(false);
   let annSchwarz = $state(false);
@@ -87,6 +94,15 @@
     return view?.players[slot]?.nick ?? '—';
   }
 
+  // What a given player most recently said in the auction, e.g. "bids 18".
+  function bidSay(role: number): string {
+    const a = round?.bidding?.lastActions?.[role];
+    if (!a) return '';
+    if (a.kind === 'bid') return `bids ${a.value}`;
+    if (a.kind === 'hold') return `holds ${a.value}`;
+    return 'passed';
+  }
+
   function contractLabel(c: Contract | null): string {
     if (!c) return '';
     if (c.type === 'grand') return 'Grand';
@@ -117,7 +133,7 @@
   <div class="table">
     <div class="topbar">
       <button class="ghost" onclick={leaveTable}>← Leave</button>
-      <span class="wordmark">liskat</span>
+      <span class="wordmark" style="font-weight:800; font-size:18px; color:#f2f5f3;">liskat</span>
       <div class="info">
         {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
         · deal {view.dealIndex + 1}
@@ -144,12 +160,13 @@
       <!-- Opponents -->
       <div class="opponents">
         {#each opponents as p}
-          <div class="seat" class:turn={round?.phase === 'playing' && round.turnSlot === p.slot}>
+          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
             <div class="who">
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
+            {#if round?.phase === 'bidding' && bidSay(p.role)}<div class="bidsay">{bidSay(p.role)}</div>{/if}
             <div class="backs">
               {#each Array(round?.handCounts[p.role] ?? 0) as _, i}
                 <div class="backwrap" style="margin-left:{i === 0 ? 0 : -42}px"><CardView back width={48} /></div>
@@ -261,6 +278,7 @@
           {#if round?.phase === 'playing'}
             <span class="turnhint" class:active={isMyTurn()}>{isMyTurn() ? 'your turn' : `${slotName(round.turnSlot)}'s turn`}</span>
           {/if}
+          {#if round?.phase === 'bidding' && me && bidSay(me.role)}<span class="bidsay inline">{bidSay(me.role)}</span>{/if}
         </div>
         <div class="hand">
           {#each hand as card (cardId(card))}
@@ -325,12 +343,6 @@
     font-size: 14px;
     color: var(--muted);
   }
-  .wordmark {
-    font-weight: 800;
-    font-size: 18px;
-    color: #f2f5f3;
-    text-align: center;
-  }
   .info {
     text-align: right;
   }
@@ -374,6 +386,20 @@
     border-radius: 10px;
     padding: 1px 8px;
     font-size: 12px;
+  }
+  .bidsay {
+    margin-top: 4px;
+    display: inline-block;
+    background: #ffd54a;
+    color: #1a1a1a;
+    font-weight: 700;
+    font-size: 13px;
+    border-radius: 10px;
+    padding: 2px 10px;
+  }
+  .bidsay.inline {
+    margin-top: 0;
+    background: rgba(255, 213, 74, 0.85);
   }
   .turnhint {
     color: var(--muted);

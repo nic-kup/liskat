@@ -32,7 +32,7 @@ export interface HistoryEntry {
 
 export interface RoundView {
   phase: 'bidding' | 'declaring' | 'playing' | 'finished';
-  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null };
+  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null; lastActions: ({ kind: 'bid' | 'hold' | 'pass'; value?: number } | null)[] };
   declarerSlot: number | null;
   bid: number;
   tookSkat: boolean;

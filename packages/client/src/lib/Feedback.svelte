@@ -45,7 +45,7 @@
     <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
       <h2>Feedback</h2>
       {#if status === 'sent'}
-        <p class="thanks">Thanks — got it! 🙌</p>
+        <p class="thanks">Thank you!</p>
         <div class="row"><button class="primary" onclick={close}>Close</button></div>
       {:else}
         <p class="muted">Found a bug or have an idea? Let us know.</p>
@@ -60,6 +60,7 @@
             {status === 'sending' ? 'Sending…' : 'Send'}
           </button>
         </div>
+        <p class="email-note">Or email at feedback@liskat.com</p>
       {/if}
     </div>
   </div>
@@ -153,5 +154,11 @@
     color: #ff8a80;
     font-size: 14px;
     margin: 0 0 10px;
+  }
+  .email-note {
+    color: var(--muted);
+    font-size: 13px;
+    margin: 14px 0 0;
+    text-align: center;
   }
 </style>

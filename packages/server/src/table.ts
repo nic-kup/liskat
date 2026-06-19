@@ -216,6 +216,7 @@ export class Table {
                 responderSlot: r.bidding.responder === null ? null : slotOfRole(r.bidding.responder, this.dealIndex),
                 currentBid: r.bidding.currentBid,
                 lastBidderSlot: r.bidding.lastBidderSeat === null ? null : slotOfRole(r.bidding.lastBidderSeat, this.dealIndex),
+                lastActions: r.bidding.lastActions,
               }
             : undefined,
         declarerSlot: r.declarer === null ? null : slotOfRole(r.declarer, this.dealIndex),
@@ -285,7 +286,7 @@ export interface TableView {
 
 export interface RoundView {
   phase: RoundState['phase'];
-  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null };
+  bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null; lastActions: ({ kind: 'bid' | 'hold' | 'pass'; value?: number } | null)[] };
   declarerSlot: number | null;
   bid: number;
   tookSkat: boolean;
