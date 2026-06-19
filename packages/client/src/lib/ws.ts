@@ -10,6 +10,7 @@ export interface ConnState {
   playerId: string | null;
   nick: string;
   account: string | null; // logged-in username, or null when anonymous
+  searching: MatchFormat | null; // the format we're queued for, or null
   tables: LobbyEntry[];
   view: TableView | null;
   error: string | null;
@@ -42,6 +43,7 @@ export const conn = writable<ConnState>({
   playerId: null,
   nick: '',
   account: ls(ACCOUNT_KEY),
+  searching: null,
   tables: [],
   view: null,
   error: null,
@@ -95,8 +97,12 @@ export function connect(): void {
           return { ...s, playerId: msg.playerId };
         case 'tables':
           return { ...s, tables: msg.tables };
+        case 'queued':
+          return { ...s, searching: msg.format as MatchFormat };
+        case 'unqueued':
+          return { ...s, searching: null };
         case 'table':
-          return { ...s, view: msg.view as TableView, error: null };
+          return { ...s, view: msg.view as TableView, searching: null, error: null };
         case 'left':
           return { ...s, view: null };
         case 'error':
@@ -216,6 +222,10 @@ export function logout(): void {
 
 export function quickMatch(format?: MatchFormat): void {
   send({ t: 'quickMatch', format });
+}
+
+export function cancelMatch(): void {
+  send({ t: 'cancelMatch' });
 }
 
 export function createTable(visibility: 'private' | 'public', format: MatchFormat): void {

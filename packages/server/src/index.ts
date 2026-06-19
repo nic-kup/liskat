@@ -9,11 +9,15 @@ import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId } from './accounts.ts';
-import { initRatings, recordMatch, ratingsFor, historyFor, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { Matchmaker } from './matchmaker.ts';
 import type { MatchFormat } from '@liskat/engine';
 
 await initAccounts();
 await initRatings();
+
+const DEFAULT_FORMAT: MatchFormat = { kind: 'deals', deals: 12 };
+const matchmaker = new Matchmaker();
 
 const PORT = Number(process.env.PORT ?? 8080);
 // How long a player's seat is held after their socket drops, so a page reload
@@ -193,6 +197,34 @@ function dropClient(client: Client): void {
   byId.delete(client.id);
 }
 
+// When the matchmaker forms a trio, seat them at a fresh unlisted table, which
+// auto-starts as soon as the third player sits down.
+matchmaker.onMatch = (format, ids) => {
+  const cs = ids.map((id) => byId.get(id)).filter((c): c is Client => !!c);
+  if (cs.length < 3) {
+    // Someone vanished between queueing and matching — requeue the survivors.
+    for (const c of cs) enqueueClient(c, format);
+    return;
+  }
+  const table = lobby.create('private', format);
+  bindTable(table);
+  for (const c of cs) {
+    c.tableId = table.id;
+    table.addPlayer(c.id, c.nick);
+  }
+  broadcastTable(table);
+};
+
+// Puts a player into the matchmaking queue for a format and tells them so.
+function enqueueClient(client: Client, format: MatchFormat): void {
+  if (client.tableId) leaveTable(client);
+  const hasAccount = client.id.startsWith('u_');
+  const type = ratedType(format);
+  const rating = hasAccount && type ? ratingOf(client.id, type) : 1500;
+  matchmaker.enqueue({ id: client.id, hasAccount, rating, joinedAt: Date.now() }, format);
+  send(client.ws, { t: 'queued', format });
+}
+
 function handle(client: Client, msg: ClientMessage): void {
   switch (msg.t) {
     case 'hello':
@@ -222,15 +254,17 @@ function handle(client: Client, msg: ClientMessage): void {
       return;
     }
 
-    case 'quickMatch': {
-      if (client.tableId) leaveTable(client);
-      const table = lobby.quickMatch(msg.format);
-      bindTable(table);
-      joinTable(client, table);
+    case 'quickMatch':
+      enqueueClient(client, msg.format ?? DEFAULT_FORMAT);
       return;
-    }
+
+    case 'cancelMatch':
+      matchmaker.dequeue(client.id);
+      send(client.ws, { t: 'unqueued' });
+      return;
 
     case 'leaveTable':
+      matchmaker.dequeue(client.id);
       leaveTable(client);
       return;
 
@@ -415,6 +449,7 @@ wss.on('connection', (ws) => {
     const c = clients.get(ws);
     clients.delete(ws);
     if (!c || c.ws !== ws) return; // this socket was already superseded by a resume
+    matchmaker.dequeue(c.id); // drop out of any matchmaking queue
     if (c.tableId) {
       // Hold the seat briefly so a reload can reconnect; evict if it doesn't.
       c.disconnectTimer = setTimeout(() => dropClient(c), RECONNECT_GRACE_MS);

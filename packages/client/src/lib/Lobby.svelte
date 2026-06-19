@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { conn, setNick, quickMatch, createTable, joinTable, listTables } from './ws.ts';
+  import { conn, setNick, quickMatch, cancelMatch, createTable, joinTable } from './ws.ts';
   import type { MatchFormat } from './types.ts';
   import Feedback from './Feedback.svelte';
   import Account from './Account.svelte';
 
   const account = $derived($conn.account);
+  const searching = $derived($conn.searching);
 
   let nick = $state(localStorage.getItem('liskat.nick') ?? '');
   let joinId = $state('');
@@ -53,8 +54,6 @@
   function fmtLabel(f: MatchFormat): string {
     return f.kind === 'deals' ? `${f.deals} deals` : `race to ${f.target}`;
   }
-
-  listTables();
 </script>
 
 <div class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3;">liskat</div>
@@ -94,26 +93,21 @@
     <p class="error">{$conn.error}</p>
   {/if}
 
-  <section class="public">
-    <h2>Open public tables</h2>
-    {#if $conn.tables.length === 0}
-      <p class="muted">None open.</p>
-    {:else}
-      <ul>
-        {#each $conn.tables as t}
-          <li>
-            <span><strong>{t.hostNick}</strong> · {fmtLabel(t.format)} · {t.seated}/3</span>
-            <button onclick={() => { ensureNick(); joinTable(t.id); }}>Join</button>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-  </section>
-
   <footer>
     <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
   </footer>
 </div>
+
+{#if searching}
+  <div class="overlay">
+    <div class="modal searching">
+      <div class="spinner" aria-label="searching"></div>
+      <h2>Finding a match…</h2>
+      <p class="muted">{fmtLabel(searching)} · matching you with players of similar strength</p>
+      <button class="cancel" onclick={cancelMatch}>Cancel</button>
+    </div>
+  </div>
+{/if}
 
 {#if showCreate}
   <div class="overlay" role="presentation" onclick={() => (showCreate = false)}>
@@ -294,5 +288,29 @@
   }
   .cancel {
     margin-top: 14px;
+  }
+  .searching {
+    text-align: center;
+  }
+  .searching h2 {
+    color: #f2f5f3;
+    text-transform: none;
+    letter-spacing: 0;
+    font-size: 20px;
+    margin: 4px 0;
+  }
+  .spinner {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 12px;
+    border: 4px solid rgba(255, 255, 255, 0.15);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 </style>

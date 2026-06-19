@@ -12,6 +12,7 @@ export type ClientMessage =
   | { t: 'createTable'; visibility: 'private' | 'public'; format: MatchFormat }
   | { t: 'joinTable'; tableId: string }
   | { t: 'quickMatch'; format?: MatchFormat }
+  | { t: 'cancelMatch' }
   | { t: 'leaveTable' }
   | { t: 'listTables' }
   | { t: 'chat'; text: string }
@@ -35,6 +36,8 @@ export type ServerMessage =
   | { t: 'welcome'; playerId: string }
   | { t: 'tables'; tables: LobbyEntry[] }
   | { t: 'table'; view: unknown } // a personalized TableView (see view.ts)
+  | { t: 'queued'; format: MatchFormat } // you're in the matchmaking queue
+  | { t: 'unqueued' } // you left the queue
   | { t: 'left' }
   | { t: 'error'; msg: string };
 
