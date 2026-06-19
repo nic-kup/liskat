@@ -7,9 +7,9 @@
   const account = $derived($conn.account);
   const searching = $derived($conn.searching);
 
-  let nick = $state(localStorage.getItem('liskat.nick') ?? '');
   let joinId = $state('');
   let showCreate = $state(false);
+  let createMsg = $state('');
 
   const QUICK: { label: string; sub: string; format: MatchFormat }[] = [
     { label: '6 deals', sub: 'quick', format: { kind: 'deals', deals: 6 } },
@@ -19,17 +19,9 @@
     { label: 'Race 1000', sub: 'first to 1000', format: { kind: 'race', target: 1000 } },
   ];
 
-  // Settles on a nickname: your account name when logged in, otherwise the
-  // typed nickname (defaulting to "Anonymous").
+  // Your name on a table: your account username, or "Anonymous" otherwise.
   function ensureNick(): void {
-    if (account) {
-      setNick(account);
-      return;
-    }
-    const n = nick.trim() || 'Anonymous';
-    nick = n;
-    localStorage.setItem('liskat.nick', n);
-    setNick(n);
+    setNick(account ?? 'Anonymous');
   }
 
   function onQuick(format: MatchFormat) {
@@ -37,6 +29,10 @@
     quickMatch(format);
   }
   function onCreatePrivate() {
+    if (!account) {
+      createMsg = 'You need an account to create a private game';
+      return;
+    }
     showCreate = true;
   }
   function chooseCreate(format: MatchFormat) {
@@ -73,21 +69,14 @@
   </section>
 
   <section class="row">
-    <label class="field">
-      <span>{account ? 'Playing as' : 'Nickname'}</span>
-      {#if account}
-        <input value={account} disabled />
-      {:else}
-        <input bind:value={nick} maxlength="24" placeholder="Anonymous" />
-      {/if}
-    </label>
-    <button class="secondary" onclick={onCreatePrivate}>Create private table</button>
-  </section>
-
-  <section class="join">
-    <input bind:value={joinId} placeholder="Paste a table link or id to join friends" />
+    <button class="secondary" class:greyed={!account} onclick={onCreatePrivate}>Create private table</button>
+    <input bind:value={joinId} placeholder="Paste a table link or id" />
     <button onclick={onJoin} disabled={!joinId.trim()}>Join</button>
   </section>
+
+  {#if createMsg && !account}
+    <p class="hint">{createMsg}</p>
+  {/if}
 
   {#if $conn.error}
     <p class="error">{$conn.error}</p>
@@ -188,17 +177,11 @@
   .row {
     display: flex;
     gap: 10px;
-    align-items: flex-end;
+    align-items: center;
     margin-top: 26px;
   }
-  .field {
+  .row input {
     flex: 1;
-  }
-  .field span {
-    display: block;
-    font-size: 13px;
-    color: var(--muted);
-    margin-bottom: 4px;
   }
   input {
     width: 100%;
@@ -209,14 +192,6 @@
     color: inherit;
     font-size: 15px;
     box-sizing: border-box;
-  }
-  .join {
-    display: flex;
-    gap: 10px;
-    margin-top: 12px;
-  }
-  .join input {
-    flex: 1;
   }
   button {
     padding: 10px 14px;
@@ -237,21 +212,12 @@
   .secondary {
     white-space: nowrap;
   }
-  .public {
-    margin-top: 26px;
+  /* Greyed but still clickable, so it can explain that an account is needed. */
+  .secondary.greyed {
+    opacity: 0.45;
   }
-  .public ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-  }
-  .public li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 8px 0;
-    border-top: 1px solid rgba(255, 255, 255, 0.08);
-    font-size: 14px;
+  .secondary.greyed:hover {
+    background: rgba(255, 255, 255, 0.08);
   }
   .muted {
     color: var(--muted);

@@ -236,6 +236,10 @@ function handle(client: Client, msg: ClientMessage): void {
       return;
 
     case 'createTable': {
+      if (!client.id.startsWith('u_')) {
+        send(client.ws, { t: 'error', msg: 'You need an account to create a private game.' });
+        return;
+      }
       if (client.tableId) leaveTable(client);
       const table = lobby.create(msg.visibility, msg.format);
       bindTable(table);
