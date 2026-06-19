@@ -14,14 +14,16 @@ idea most worth borrowing from lichess.
 | Package            | Role                                                              | Status |
 | ------------------ | ---------------------------------------------------------------- | ------ |
 | `packages/engine`  | Pure Skat rules: bidding, round state machine, scoring, match formats | ✅ done (25 tests) |
-| `packages/server`  | Authoritative game server + matchmaking lobby (WebSocket)         | planned |
+| `packages/server`  | Authoritative game server + matchmaking lobby (WebSocket)         | ✅ done (5 tests) |
 | `packages/client`  | Web UI: the table, the cards (SVG)                                | planned |
 
 The engine has **zero dependencies** and runs on Node's built-in test runner
 and type stripping — no build step.
 
 ```bash
-cd packages/engine && npm test
+npm install                      # workspace deps (ws)
+npm test                         # run all package test suites
+cd packages/server && npm start  # boot the game server on :8080
 ```
 
 ## Game formats (planned)

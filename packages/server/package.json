@@ -1,0 +1,17 @@
+{
+  "name": "@liskat/server",
+  "version": "0.0.1",
+  "description": "Liskat authoritative game server: matchmaking lobby + Skat rounds over WebSocket.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "start": "node --experimental-strip-types src/index.ts",
+    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "test": "node --test --experimental-strip-types test/*.test.ts"
+  },
+  "dependencies": {
+    "@liskat/engine": "*",
+    "ws": "^8.18.0"
+  },
+  "license": "AGPL-3.0-or-later"
+}
