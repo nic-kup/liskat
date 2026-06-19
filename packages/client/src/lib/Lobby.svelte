@@ -70,7 +70,8 @@
 <svelte:window onkeydown={onKey} />
 
 <button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
-<div class="topright"><button class="navlink" onclick={() => ($page = 'howto')}>How to play</button><Account /><Feedback /></div>
+<div class="topright"><button class="navlink" onclick={() => ($page = 'howto')}>How to play</button><Account /></div>
+<div class="bottombar"><Feedback /></div>
 
 <div class="lobby">
   <section class="quick">
@@ -150,6 +151,15 @@
     /* The account modal renders inside here; keep the whole layer above the
        lobby so opacity-reduced buttons (greyed "create", disabled "join")
        — which form their own stacking contexts — can't paint over it. */
+    z-index: 200;
+  }
+  .bottombar {
+    position: fixed;
+    bottom: 14px;
+    left: 0;
+    right: 0;
+    display: flex;
+    justify-content: center;
     z-index: 200;
   }
   .lobby {
