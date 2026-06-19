@@ -1,7 +1,9 @@
 <script lang="ts">
   import { conn, connect, joinTable } from './lib/ws.ts';
+  import { page } from './lib/ui.ts';
   import Lobby from './lib/Lobby.svelte';
   import Table from './lib/Table.svelte';
+  import AccountPage from './lib/AccountPage.svelte';
 
   connect();
 
@@ -14,6 +16,8 @@
 <main>
   {#if $conn.view}
     <Table />
+  {:else if $page === 'account'}
+    <AccountPage />
   {:else}
     <Lobby />
     {#if invitedTable}

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { conn, login, register, logout } from './ws.ts';
+  import { page } from './ui.ts';
 
   let open = $state(false);
   let mode = $state<'login' | 'register'>('login');
@@ -38,7 +39,7 @@
 </script>
 
 {#if account}
-  <span class="acct">{account}</span>
+  <button class="acct" onclick={() => ($page = 'account')} title="View your account">{account}</button>
   <button class="link" onclick={logout}>Log out</button>
 {:else}
   <button class="link" onclick={() => openModal('login')}>Log in</button>
@@ -80,6 +81,14 @@
   .acct {
     font-weight: 700;
     color: #f2f5f3;
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+  }
+  .acct:hover {
+    text-decoration: underline;
   }
   .link {
     background: none;

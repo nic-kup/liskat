@@ -9,8 +9,11 @@ import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId } from './accounts.ts';
+import { initRatings, recordMatch, ratingsFor, historyFor, MATCH_TYPES, type MatchType } from './ratings.ts';
+import type { MatchFormat } from '@liskat/engine';
 
 await initAccounts();
+await initRatings();
 
 const PORT = Number(process.env.PORT ?? 8080);
 // How long a player's seat is held after their socket drops, so a page reload
@@ -54,7 +57,30 @@ function broadcastLobby(): void {
 }
 
 function bindTable(table: Table): void {
-  table.onChange = () => broadcastTable(table);
+  table.onChange = () => {
+    broadcastTable(table);
+    maybeRecordMatch(table);
+  };
+}
+
+// Maps a match format to one of the five rated types, or null if non-standard.
+function ratedType(format: MatchFormat): MatchType | null {
+  const t = format.kind === 'deals' ? `deals-${format.deals}` : `race-${format.target}`;
+  return (MATCH_TYPES as readonly string[]).includes(t) ? (t as MatchType) : null;
+}
+
+// Rates a match exactly once, when it finishes naturally with three logged-in
+// accounts. Anonymous seats or aborted (someone-left) matches are not rated.
+const ratedTables = new Set<string>();
+function maybeRecordMatch(table: Table): void {
+  if (table.status !== 'over' || !table.match?.finished || ratedTables.has(table.id)) return;
+  ratedTables.add(table.id); // mark first so we never double-record
+  const type = ratedType(table.format);
+  if (!type) return;
+  const seats = table.seats;
+  if (seats.some((s) => !s || !s.id.startsWith('u_'))) return; // anonymous present — unrated
+  const players = seats.map((s, slot) => ({ userId: s!.id, username: s!.nick, score: table.match!.scores[slot] }));
+  void recordMatch(type, players).then(() => broadcastTable(table));
 }
 
 function joinTable(client: Client, table: Table): void {
@@ -314,6 +340,22 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, action: 're
   }
 }
 
+async function handleProfile(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const json = (status: number, body: object) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  let token = '';
+  try {
+    token = String(JSON.parse(await readBody(req, 2000)).token ?? '');
+  } catch {
+    return json(400, { ok: false, error: 'Invalid request.' });
+  }
+  const userId = userIdForToken(token);
+  if (!userId) return json(401, { ok: false, error: 'Not logged in.' });
+  json(200, { ok: true, username: usernameForId(userId), ratings: ratingsFor(userId), history: historyFor(userId) });
+}
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'text/plain' });
@@ -327,6 +369,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/auth/register') return void handleAuth(req, res, 'register');
   if (req.method === 'POST' && req.url === '/auth/login') return void handleAuth(req, res, 'login');
   if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
+  if (req.method === 'POST' && req.url === '/auth/profile') return void handleProfile(req, res);
   res.writeHead(404);
   res.end();
 });

@@ -162,6 +162,48 @@ export async function login(username: string, password: string): Promise<AuthRes
   return r;
 }
 
+export interface RatingEntry {
+  rating: number;
+  games: number;
+}
+export interface MatchPlayerResult {
+  userId: string;
+  username: string;
+  score: number;
+  place: number;
+  ratingBefore: number;
+  ratingAfter: number;
+  delta: number;
+}
+export interface MatchRecord {
+  id: string;
+  type: string;
+  ts: string;
+  results: MatchPlayerResult[];
+}
+export interface Profile {
+  ok: boolean;
+  username?: string;
+  ratings?: Record<string, RatingEntry>;
+  history?: MatchRecord[];
+  error?: string;
+}
+
+export async function fetchProfile(): Promise<Profile> {
+  const token = ls(SESSION_KEY);
+  if (!token) return { ok: false, error: 'Not logged in.' };
+  try {
+    const res = await fetch('/auth/profile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token }),
+    });
+    return (await res.json()) as Profile;
+  } catch {
+    return { ok: false, error: 'Network error.' };
+  }
+}
+
 export function logout(): void {
   const token = ls(SESSION_KEY);
   if (token) void authPost('logout', { token });
