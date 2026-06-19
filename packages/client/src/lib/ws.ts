@@ -205,6 +205,7 @@ export interface MatchRecord {
   id: string;
   type: string;
   ts: string;
+  ranked: boolean;
   results: MatchPlayerResult[];
 }
 export interface Profile {
@@ -213,6 +214,31 @@ export interface Profile {
   ratings?: Record<string, RatingEntry>;
   history?: MatchRecord[];
   error?: string;
+}
+
+export interface DealReplay {
+  deal: number;
+  dealerSlot: number;
+  hands: string[][];
+  skat: string[];
+  bids: { slot: number; kind: 'bid' | 'hold' | 'pass'; value?: number }[];
+  declarerSlot: number | null;
+  tookSkat: boolean;
+  discard: string[] | null;
+  contract: { type: 'suit' | 'grand' | 'null'; suit?: string } | null;
+  ouvert?: boolean;
+  tricks: { leader: number; cards: string[]; winner: number }[];
+  result: { won: boolean; value: number; schneider: boolean; schwarz: boolean; cardPoints: number | null } | null;
+  passedIn: boolean;
+  scores: number[];
+}
+export interface MatchDetail {
+  id: string;
+  type: string;
+  ts: string;
+  ranked: boolean;
+  players: { slot: number; username: string; account: boolean }[];
+  deals: DealReplay[];
 }
 
 export async function fetchProfile(): Promise<Profile> {
@@ -227,6 +253,22 @@ export async function fetchProfile(): Promise<Profile> {
     return (await res.json()) as Profile;
   } catch {
     return { ok: false, error: 'Network error.' };
+  }
+}
+
+export async function fetchMatch(id: string): Promise<MatchDetail | null> {
+  const token = ls(SESSION_KEY);
+  if (!token) return null;
+  try {
+    const res = await fetch('/auth/match', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token, id }),
+    });
+    const data = await res.json();
+    return data.ok ? (data.detail as MatchDetail) : null;
+  } catch {
+    return null;
   }
 }
 

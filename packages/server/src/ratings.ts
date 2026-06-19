@@ -17,6 +17,7 @@ import { randomBytes } from 'node:crypto';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DATA_DIR } from './datadir.ts';
+import { deleteMatchDetail } from './history.ts';
 
 const RATINGS_FILE = join(DATA_DIR, 'ratings.json');
 const MATCHES_FILE = join(DATA_DIR, 'matches.json');
@@ -37,7 +38,7 @@ interface Rating {
 type RatingsByType = Partial<Record<MatchType, Rating>>;
 
 export interface MatchPlayerResult {
-  userId: string;
+  userId: string; // "" for an anonymous player
   username: string;
   score: number;
   place: number; // 1 = best (ties share a place)
@@ -47,9 +48,16 @@ export interface MatchPlayerResult {
 }
 export interface MatchRecord {
   id: string;
-  type: MatchType;
+  type: string; // format key, e.g. "deals-12"
   ts: string;
+  ranked: boolean; // whether it affected Elo
   results: MatchPlayerResult[];
+}
+
+export interface MatchPlayerInput {
+  userId: string | null;
+  username: string;
+  score: number;
 }
 
 const ratings = new Map<string, RatingsByType>(); // userId -> per-type rating
@@ -110,6 +118,11 @@ export function historyFor(userId: string, limit = 50): MatchRecord[] {
   return mine.slice(-limit).reverse();
 }
 
+// A match summary by id, or undefined.
+export function matchById(id: string): MatchRecord | undefined {
+  return matches.find((m) => m.id === id);
+}
+
 export function matchCount(): number {
   return matches.length;
 }
@@ -130,38 +143,55 @@ export async function applyPenalty(userId: string, type: MatchType, amount: numb
   return e.rating - after;
 }
 
-// Records a finished, fully-accounted match: updates each player's rating for
-// the match type and appends a history entry. Returns the record (or null if
-// the inputs aren't ratable).
-export async function recordMatch(type: MatchType, players: { userId: string; username: string; score: number }[]): Promise<MatchRecord | null> {
-  if (!MATCH_TYPES.includes(type) || players.length !== 3) return null;
-
-  const before = players.map((p) => ratingEntry(p.userId, type));
+// Records a finished match into the history. When `ranked` is set (a rated game
+// where every seat is an account, with a standard format), it also updates Elo
+// using the pairwise method; otherwise it just stores the placements. Returns
+// the summary record (its id keys the on-disk replay detail).
+export async function recordMatch(typeKey: string, ranked: boolean, players: MatchPlayerInput[]): Promise<MatchRecord | null> {
+  if (players.length !== 3) return null;
   const places = players.map((p) => 1 + players.filter((o) => o.score > p.score).length);
+  const ratedType = ranked && (MATCH_TYPES as readonly string[]).includes(typeKey) ? (typeKey as MatchType) : null;
 
-  const deltas = players.map((p, i) => {
-    let expected = 0;
-    let actual = 0;
-    for (let j = 0; j < players.length; j++) {
-      if (j === i) continue;
-      expected += expectedPair(before[i].rating, before[j].rating);
-      if (places[i] < places[j]) actual += 1;
-      else if (places[i] === places[j]) actual += 0.5;
-    }
-    return Math.round(kFor(before[i].games) * (actual - expected));
-  });
+  const before = players.map((p) => (ratedType && p.userId ? ratingEntry(p.userId, ratedType) : { rating: START, games: 0 }));
+  let deltas = players.map(() => 0);
 
-  const results: MatchPlayerResult[] = players.map((p, i) => {
-    const after = before[i].rating + deltas[i];
-    const byType = ratings.get(p.userId) ?? {};
-    byType[type] = { rating: after, games: before[i].games + 1 };
-    ratings.set(p.userId, byType);
-    return { userId: p.userId, username: p.username, score: p.score, place: places[i], ratingBefore: before[i].rating, ratingAfter: after, delta: deltas[i] };
-  });
+  if (ratedType) {
+    deltas = players.map((p, i) => {
+      let expected = 0;
+      let actual = 0;
+      for (let j = 0; j < players.length; j++) {
+        if (j === i) continue;
+        expected += expectedPair(before[i].rating, before[j].rating);
+        if (places[i] < places[j]) actual += 1;
+        else if (places[i] === places[j]) actual += 0.5;
+      }
+      return Math.round(kFor(before[i].games) * (actual - expected));
+    });
+    players.forEach((p, i) => {
+      if (!p.userId) return;
+      const byType = ratings.get(p.userId) ?? {};
+      byType[ratedType] = { rating: before[i].rating + deltas[i], games: before[i].games + 1 };
+      ratings.set(p.userId, byType);
+    });
+  }
 
-  const record: MatchRecord = { id: `m_${randomBytes(6).toString('hex')}`, type, ts: new Date().toISOString(), results };
+  const results: MatchPlayerResult[] = players.map((p, i) => ({
+    userId: p.userId ?? '',
+    username: p.username,
+    score: p.score,
+    place: places[i],
+    ratingBefore: before[i].rating,
+    ratingAfter: before[i].rating + deltas[i],
+    delta: deltas[i],
+  }));
+
+  const record: MatchRecord = { id: `m_${randomBytes(6).toString('hex')}`, type: typeKey, ts: new Date().toISOString(), ranked: !!ratedType, results };
   matches.push(record);
-  if (matches.length > MAX_MATCHES) matches = matches.slice(-MAX_MATCHES);
+  if (matches.length > MAX_MATCHES) {
+    const evicted = matches.slice(0, matches.length - MAX_MATCHES);
+    matches = matches.slice(-MAX_MATCHES);
+    for (const m of evicted) void deleteMatchDetail(m.id); // drop the replay file too
+  }
 
   await saveRatings();
   await saveMatches();

@@ -12,7 +12,8 @@ import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId, accountCount } from './accounts.ts';
-import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, matchById, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { writeMatchDetail, readMatchDetail } from './history.ts';
 import { Matchmaker } from './matchmaker.ts';
 import type { MatchFormat } from '@liskat/engine';
 
@@ -103,13 +104,31 @@ const ratedTables = new Set<string>();
 function maybeRecordMatch(table: Table): void {
   if (table.status !== 'over' || !table.match?.finished || ratedTables.has(table.id)) return;
   ratedTables.add(table.id); // mark first so we never double-record
-  if (!table.rated) return; // private games never count toward Elo
-  const type = ratedType(table.format);
-  if (!type) return;
   const seats = table.seats;
-  if (seats.some((s) => !s || !s.id.startsWith('u_'))) return; // anonymous present — unrated
-  const players = seats.map((s, slot) => ({ userId: s!.id, username: s!.nick, score: table.match!.scores[slot] }));
-  void recordMatch(type, players).then(() => broadcastTable(table));
+  if (seats.some((s) => !s)) return; // shouldn't happen for a finished match
+  // Keep history for any match with at least one logged-in account.
+  if (!seats.some((s) => s!.id.startsWith('u_'))) return;
+  const allAccounts = seats.every((s) => s!.id.startsWith('u_'));
+  const typeKey = formatKeyOf(table.format);
+  const ranked = table.rated && allAccounts && (MATCH_TYPES as readonly string[]).includes(typeKey);
+  const players = seats.map((s, slot) => ({ userId: s!.id.startsWith('u_') ? s!.id : null, username: s!.nick, score: table.match!.scores[slot] }));
+  void recordMatch(typeKey, ranked, players)
+    .then((rec) => {
+      if (!rec) return;
+      return writeMatchDetail({
+        id: rec.id,
+        type: rec.type,
+        ts: rec.ts,
+        ranked: rec.ranked,
+        players: seats.map((s, slot) => ({ slot, username: s!.nick, account: s!.id.startsWith('u_') })),
+        deals: table.replay,
+      });
+    })
+    .then(() => broadcastTable(table));
+}
+
+function formatKeyOf(format: MatchFormat): string {
+  return format.kind === 'deals' ? `deals-${format.deals}` : `race-${format.target}`;
 }
 
 function joinTable(client: Client, table: Table): void {
@@ -425,6 +444,30 @@ async function handleProfile(req: IncomingMessage, res: ServerResponse): Promise
   json(200, { ok: true, username: usernameForId(userId), ratings: ratingsFor(userId), history: historyFor(userId) });
 }
 
+async function handleMatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const json = (status: number, body: object) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  let token = '';
+  let id = '';
+  try {
+    const b = JSON.parse(await readBody(req, 2000));
+    token = String(b.token ?? '');
+    id = String(b.id ?? '');
+  } catch {
+    return json(400, { ok: false, error: 'Invalid request.' });
+  }
+  const userId = userIdForToken(token);
+  if (!userId) return json(401, { ok: false, error: 'Not logged in.' });
+  // Only a participant may view a match replay.
+  const rec = matchById(id);
+  if (!rec || !rec.results.some((r) => r.userId === userId)) return json(404, { ok: false, error: 'Not found.' });
+  const detail = await readMatchDetail(id);
+  if (!detail) return json(404, { ok: false, error: 'Replay unavailable.' });
+  json(200, { ok: true, detail });
+}
+
 // Serve the built client (same origin as the API/WS, so /ws, /auth, /feedback
 // all resolve). Override the location with LISKAT_CLIENT_DIR if needed.
 const CLIENT_DIR = process.env.LISKAT_CLIENT_DIR ?? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'client', 'dist');
@@ -569,6 +612,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/auth/login') return void handleAuth(req, res, 'login');
   if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
   if (req.method === 'POST' && req.url === '/auth/profile') return void handleProfile(req, res);
+  if (req.method === 'POST' && req.url === '/auth/match') return void handleMatch(req, res);
   if (req.method === 'GET' && (req.url ?? '').startsWith('/stats')) return void handleStats(req, res);
   if (req.method === 'GET' && (req.url === '/admin' || (req.url ?? '').startsWith('/admin?'))) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

@@ -9,6 +9,7 @@ import {
   applyAction,
   legalCards,
   deal,
+  cardId,
   type MatchFormat,
   type MatchState,
   type RoundState,
@@ -18,6 +19,7 @@ import {
   type Card,
 } from '@liskat/engine';
 import type { ClientAction } from './protocol.ts';
+import type { DealReplay } from './history.ts';
 
 const BETWEEN_DEALS_MS = 6000;
 const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table before it is swept
@@ -69,6 +71,13 @@ export class Table {
   // move clock runs (off can be chosen for private games).
   rated = false;
   timed = true;
+
+  // Full replay of the match (one entry per deal), built up as play proceeds.
+  private dealReplays: DealReplay[] = [];
+  private cur: DealReplay | null = null;
+  get replay(): DealReplay[] {
+    return this.dealReplays;
+  }
 
   // Move clock, per slot. timeBank is remaining reserve (ms); turnTimer fires
   // when the active player runs out; timedSlot/turnStart track the clock that
@@ -137,6 +146,7 @@ export class Table {
     this.match = createMatch(this.format);
     this.dealIndex = 0;
     this.timeBank = [BANK_START_MS, BANK_START_MS, BANK_START_MS];
+    this.dealReplays = [];
     this.startDeal();
   }
 
@@ -145,7 +155,56 @@ export class Table {
     this.status = 'playing';
     // Top up everyone's time bank for the new deal (deal 1 keeps the start value).
     if (this.dealIndex > 0) this.timeBank = this.timeBank.map((b) => b + BANK_PER_DEAL_MS);
+    // Start this deal's replay: snapshot the dealt hands and skat by slot.
+    this.cur = {
+      deal: this.dealIndex + 1,
+      dealerSlot: slotOfRole(2, this.dealIndex),
+      hands: [0, 1, 2].map((slot) => this.round!.hands[roleOfSlot(slot, this.dealIndex)].map(cardId)),
+      skat: this.round.skat.map(cardId),
+      bids: [],
+      declarerSlot: null,
+      tookSkat: false,
+      discard: null,
+      contract: null,
+      tricks: [],
+      result: null,
+      passedIn: false,
+      scores: [],
+    };
+    this.dealReplays.push(this.cur);
     this.armTimer();
+  }
+
+  // Records a successfully-applied action into the current deal's replay.
+  private recordAction(action: Action, bidBefore: number): void {
+    const c = this.cur;
+    if (!c) return;
+    const slot = 'seat' in action ? slotOfRole(action.seat, this.dealIndex) : -1;
+    switch (action.type) {
+      case 'bid':
+        c.bids.push({ slot, kind: 'bid', value: action.value });
+        break;
+      case 'hold':
+        c.bids.push({ slot, kind: 'hold', value: bidBefore });
+        break;
+      case 'pass':
+        c.bids.push({ slot, kind: 'pass' });
+        break;
+      case 'takeSkat':
+        c.tookSkat = true;
+        break;
+      case 'playHand':
+        c.tookSkat = false;
+        break;
+      case 'discard':
+        c.discard = action.cards.map(cardId);
+        break;
+      case 'declareContract':
+        c.contract = action.contract;
+        c.ouvert = !!action.announcements?.ouvert;
+        c.declarerSlot = this.round && this.round.declarer !== null ? slotOfRole(this.round.declarer, this.dealIndex) : null;
+        break;
+    }
   }
 
   // Applies a player's action to the current round, then advances if the round
@@ -157,11 +216,13 @@ export class Table {
     const role = roleOfSlot(slot, this.dealIndex);
 
     const action = { ...ca, seat: role } as Action;
+    const bidBefore = this.round.bidding?.currentBid ?? 0;
     try {
       this.round = applyAction(this.round, action);
     } catch (e) {
       return (e as Error).message;
     }
+    this.recordAction(action, bidBefore);
     this.charge();
     this.advance();
     this.armTimer();
@@ -245,11 +306,13 @@ export class Table {
     this.timeBank[slot] = 0;
     const action = this.randomAction(slot);
     if (action) {
+      const bidBefore = this.round.bidding?.currentBid ?? 0;
       try {
         this.round = applyAction(this.round, action);
       } catch {
         return;
       }
+      this.recordAction(action, bidBefore);
     }
     this.turnStart = 0;
     this.advance();
@@ -288,6 +351,14 @@ export class Table {
   private advance(): void {
     const r = this.round!;
     if (r.phase === 'playing' && r.trickComplete) {
+      // Capture the just-completed trick before it is swept.
+      if (this.cur && this.cur.tricks.length < r.trickCount + 1) {
+        this.cur.tricks.push({
+          leader: slotOfRole(r.trick[0].seat, this.dealIndex),
+          cards: r.trick.map((t) => cardId(t.card)),
+          winner: r.trickWinnerSeat === null ? -1 : slotOfRole(r.trickWinnerSeat, this.dealIndex),
+        });
+      }
       this.schedule(() => {
         this.round = applyAction(this.round!, { type: 'collect' });
         if (this.round.phase === 'finished') this.endRound();
@@ -302,6 +373,15 @@ export class Table {
   private endRound(): void {
     const r = this.round!;
     recordRoundIntoMatch(this, r);
+    if (this.cur) {
+      this.cur.passedIn = r.passedIn;
+      this.cur.declarerSlot = r.passedIn || r.declarer === null ? null : slotOfRole(r.declarer, this.dealIndex);
+      this.cur.result = r.result
+        ? { won: r.result.won, value: r.result.value, schneider: r.result.schneider, schwarz: r.result.schwarz, cardPoints: r.result.cardPoints ?? null }
+        : null;
+      this.cur.scores = [...this.match!.scores];
+      this.cur = null;
+    }
     this.history.push({
       deal: this.dealIndex + 1,
       declarerSlot: r.passedIn || r.declarer === null ? null : slotOfRole(r.declarer, this.dealIndex),
