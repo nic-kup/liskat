@@ -26,3 +26,13 @@ body {
 button {
   font-family: inherit;
 }
+
+/* On narrow windows the fixed side overlays would cover the table, so hide
+   them (chat, history, last-trick). */
+@media (max-width: 980px) {
+  .chat,
+  .history,
+  .lasttrick {
+    display: none !important;
+  }
+}

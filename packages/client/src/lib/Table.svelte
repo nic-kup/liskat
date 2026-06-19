@@ -19,7 +19,9 @@
   const me = $derived(view?.players.find((p) => p.you));
   const opponents = $derived(view ? view.players.filter((p) => p.slot !== mySlot) : []);
   const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
-  const myIdentity = $derived(identityForSlot(mySlot, mySlot));
+  const myIdentity = $derived(identityForSlot(mySlot));
+  // The dealer is rearhand (role 2); a chip marks their seat.
+  const dealerSlot = $derived(view?.players.find((p) => p.role === 2)?.slot ?? -1);
 
   // The seat currently "speaking" during the auction (for highlighting).
   const bidActiveSlot = $derived.by(() => {
@@ -162,20 +164,24 @@
       <!-- Opponents -->
       <div class="opponents">
         {#each opponents as p}
-          {@const id = identityForSlot(p.slot, mySlot)}
+          {@const id = identityForSlot(p.slot)}
+          {@const say = round?.phase === 'bidding' ? bidSay(p.role) : ''}
           <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
             <div class="who">
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
+              {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
-            {#if round?.phase === 'bidding' && bidSay(p.role)}<div class="bidsay">{bidSay(p.role)}</div>{/if}
             <div class="backs">
               {#each Array(round?.handCounts[p.role] ?? 0) as _, i}
                 <div class="backwrap" style="margin-left:{i === 0 ? 0 : -42}px"><CardView back width={48} /></div>
               {/each}
             </div>
+            {#key say}
+              {#if say}<div class="bidbubble" style="background:{id.color}">{say}</div>{/if}
+            {/key}
           </div>
         {/each}
       </div>
@@ -279,11 +285,11 @@
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           <strong>{me?.nick}</strong>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
+          {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing'}
             <span class="turnhint" class:active={isMyTurn()}>{isMyTurn() ? 'your turn' : `${slotName(round.turnSlot)}'s turn`}</span>
           {/if}
-          {#if round?.phase === 'bidding' && me && bidSay(me.role)}<span class="bidsay inline">{bidSay(me.role)}</span>{/if}
         </div>
         <div class="hand">
           {#each hand as card (cardId(card))}
@@ -321,7 +327,7 @@
       {/if}
 
       <History history={view.history} players={view.players} />
-      <Chat messages={view.chat} youSlot={view.youSlot} />
+      <Chat messages={view.chat} />
     {/if}
 
     {#if $conn.error}<p class="error">{$conn.error}</p>{/if}
@@ -370,9 +376,25 @@
     padding: 8px 12px;
     transition: box-shadow 0.15s;
   }
+  .seat,
+  .myseat {
+    position: relative;
+  }
   .seat.turn,
   .myseat.turn {
-    box-shadow: 0 0 0 2px #ffd54a;
+    background: rgba(255, 255, 255, 0.06);
+  }
+  .dealer-chip {
+    background: #fff;
+    color: #1a1a1a;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
   }
   .who {
     display: flex;
@@ -396,19 +418,35 @@
     padding: 1px 8px;
     font-size: 12px;
   }
-  .bidsay {
-    margin-top: 4px;
-    display: inline-block;
-    background: #ffd54a;
+  /* a transient speech bubble under a player's cards when they bid/hold/pass */
+  .bidbubble {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 6px;
+    white-space: nowrap;
     color: #1a1a1a;
     font-weight: 700;
     font-size: 13px;
-    border-radius: 10px;
-    padding: 2px 10px;
+    border-radius: 12px;
+    padding: 3px 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+    animation: bidbubble 2s ease forwards;
   }
-  .bidsay.inline {
-    margin-top: 0;
-    background: rgba(255, 213, 74, 0.85);
+  @keyframes bidbubble {
+    0% {
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 1;
+    } /* held ~1s */
+    100% {
+      opacity: 0;
+    } /* faded over ~1s */
   }
   .turnhint {
     color: var(--muted);

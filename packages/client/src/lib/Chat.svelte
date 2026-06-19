@@ -5,9 +5,8 @@
 
   interface Props {
     messages: { nick: string; slot: number; text: string }[];
-    youSlot: number | null;
   }
-  let { messages, youSlot }: Props = $props();
+  let { messages }: Props = $props();
   let open = $state(true);
 </script>
 
@@ -16,7 +15,7 @@
   {#if open}
     <div class="log">
       {#each messages.slice(-8) as m}
-        {@const id = identityForSlot(m.slot, youSlot)}
+        {@const id = identityForSlot(m.slot)}
         <div class="msg"><span class="marker" style="color:{id.color}">{id.marker}</span> <strong>{m.nick}:</strong> {m.text}</div>
       {/each}
       {#if messages.length === 0}<div class="empty">Say hi 👋</div>{/if}
