@@ -11,8 +11,8 @@ import { Lobby } from './lobby.ts';
 import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
-import { initAccounts, register, login, logout, userIdForToken, usernameForId } from './accounts.ts';
-import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { initAccounts, register, login, logout, userIdForToken, usernameForId, accountCount } from './accounts.ts';
+import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, MATCH_TYPES, type MatchType } from './ratings.ts';
 import { Matchmaker } from './matchmaker.ts';
 import type { MatchFormat } from '@liskat/engine';
 
@@ -23,6 +23,8 @@ const DEFAULT_FORMAT: MatchFormat = { kind: 'deals', deals: 12 };
 const matchmaker = new Matchmaker();
 
 const PORT = Number(process.env.PORT ?? 8080);
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? '';
+const startedAt = Date.now();
 // How long a player's seat is held after their socket drops, so a page reload
 // can reconnect to the same identity instead of being kicked from the game.
 const RECONNECT_GRACE_MS = 60_000;
@@ -470,6 +472,89 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   }
 }
 
+function fmtFormat(f: MatchFormat): string {
+  return f.kind === 'deals' ? `${f.deals} deals` : `race ${f.target}`;
+}
+
+// Live snapshot for the monitoring dashboard.
+function gatherStats(): object {
+  const tables = lobby.snapshot();
+  const active = tables.filter((t) => t.status === 'playing' || t.status === 'between');
+  const waiting = tables.filter((t) => t.status === 'waiting');
+  const onlineAccounts = new Set([...clients.values()].filter((c) => c.id.startsWith('u_')).map((c) => c.id));
+  const queueByFormat = matchmaker.counts();
+  const queued = Object.values(queueByFormat).reduce((a, b) => a + b, 0);
+  return {
+    now: new Date().toISOString(),
+    uptimeSec: Math.floor((Date.now() - startedAt) / 1000),
+    connected: clients.size,
+    onlineAccounts: onlineAccounts.size,
+    activeGames: active.length,
+    waitingTables: waiting.length,
+    queued,
+    queueByFormat,
+    registeredAccounts: accountCount(),
+    ratedPlayers: ratedPlayerCount(),
+    matchesPlayed: matchCount(),
+    games: active.map((t) => ({ id: t.id, status: t.status, seated: t.seated, format: fmtFormat(t.format), rated: t.rated })),
+  };
+}
+
+function handleStats(req: IncomingMessage, res: ServerResponse): void {
+  const json = (status: number, body: object) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled — set ADMIN_TOKEN' });
+  const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
+  if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
+  json(200, gatherStats());
+}
+
+// Self-contained monitoring dashboard served at /admin. Prompts for the admin
+// key, stores it locally, then polls /stats every 5s. No backticks / ${} inside
+// so it stays a plain template literal.
+const ADMIN_HTML = [
+  '<!doctype html><html lang="en"><head><meta charset="utf-8">',
+  '<meta name="viewport" content="width=device-width, initial-scale=1"><title>liskat monitor</title>',
+  '<style>',
+  ':root{color-scheme:dark}body{margin:0;font-family:system-ui,-apple-system,sans-serif;color:#f2f5f3;background:radial-gradient(ellipse at 50% 30%,#0f5132,#0a3d26 75%);min-height:100vh;padding:28px}',
+  'h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:#b9c7c0;text-transform:uppercase;letter-spacing:1px}',
+  '.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}',
+  '.card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px 16px}',
+  '.card .label{font-size:12px;color:#b9c7c0}.card .value{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}',
+  'table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08)}th{color:#b9c7c0}',
+  'input{padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#f2f5f3;font-size:15px}',
+  'button{padding:9px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.1);color:#f2f5f3;cursor:pointer;font-size:15px}',
+  '.muted{color:#b9c7c0;font-size:12px;margin-top:14px}#err{color:#ff8a80}',
+  '</style></head><body>',
+  '<h1>liskat monitor</h1><p class="muted" id="sub">live server stats</p>',
+  '<div id="login" style="display:none;margin-top:16px"><p>Admin key</p><input id="key" type="password" autocomplete="off"> <button onclick="saveKey()">View</button><p id="err"></p></div>',
+  '<div id="dash" style="display:none"><div class="grid" id="cards"></div><h2>Active games</h2>',
+  '<table><thead><tr><th>ID</th><th>Format</th><th>Seated</th><th>Status</th><th>Ranked</th></tr></thead><tbody id="games"></tbody></table>',
+  '<p class="muted" id="foot"></p><p class="muted"><button onclick="logout()">Forget key</button></p></div>',
+  '<script>',
+  'var key=localStorage.getItem("liskat.adminkey")||"";',
+  'function show(id,on){document.getElementById(id).style.display=on?"":"none"}',
+  'function saveKey(){key=document.getElementById("key").value.trim();localStorage.setItem("liskat.adminkey",key);load()}',
+  'function logout(){localStorage.removeItem("liskat.adminkey");key="";load()}',
+  'function card(l,v){return "<div class=\\"card\\"><div class=\\"label\\">"+l+"</div><div class=\\"value\\">"+v+"</div></div>"}',
+  'function up(s){var h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h+"h "+m+"m"}',
+  'async function load(){',
+  ' if(!key){show("login",true);show("dash",false);return}',
+  ' try{var r=await fetch("/stats",{headers:{"x-admin-key":key}});',
+  '  if(r.status===401){show("login",true);show("dash",false);document.getElementById("err").textContent="Wrong key.";return}',
+  '  if(!r.ok){show("login",true);show("dash",false);document.getElementById("err").textContent="Unavailable (status "+r.status+").";return}',
+  '  var s=await r.json();show("login",false);show("dash",true);',
+  '  document.getElementById("cards").innerHTML=card("Connected",s.connected)+card("Accounts online",s.onlineAccounts)+card("Active games",s.activeGames)+card("In queue",s.queued)+card("Waiting tables",s.waitingTables)+card("Registered accounts",s.registeredAccounts)+card("Matches played",s.matchesPlayed)+card("Uptime",up(s.uptimeSec));',
+  '  document.getElementById("games").innerHTML=s.games.length?s.games.map(function(g){return "<tr><td>"+g.id+"</td><td>"+g.format+"</td><td>"+g.seated+"/3</td><td>"+g.status+"</td><td>"+(g.rated?"yes":"no")+"</td></tr>"}).join(""):"<tr><td colspan=5 class=muted>No active games.</td></tr>";',
+  '  document.getElementById("foot").textContent="Updated "+new Date(s.now).toLocaleTimeString()+" · refreshes every 5s";',
+  ' }catch(e){var f=document.getElementById("foot");if(f)f.textContent="Network error."}',
+  '}',
+  'load();setInterval(load,5000);',
+  '</script></body></html>',
+].join('');
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'text/plain' });
@@ -484,6 +569,12 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/auth/login') return void handleAuth(req, res, 'login');
   if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
   if (req.method === 'POST' && req.url === '/auth/profile') return void handleProfile(req, res);
+  if (req.method === 'GET' && (req.url ?? '').startsWith('/stats')) return void handleStats(req, res);
+  if (req.method === 'GET' && (req.url === '/admin' || (req.url ?? '').startsWith('/admin?'))) {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    res.end(ADMIN_HTML);
+    return;
+  }
   if (req.method === 'GET' || req.method === 'HEAD') return void serveStatic(req, res);
   res.writeHead(404);
   res.end();

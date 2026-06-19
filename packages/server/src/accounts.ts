@@ -163,3 +163,7 @@ export function userIdForToken(token: string | null | undefined): string | null 
 export function usernameForId(id: string): string | null {
   return usersById.get(id)?.username ?? null;
 }
+
+export function accountCount(): number {
+  return usersById.size;
+}

@@ -60,6 +60,18 @@ export class Lobby {
     }
     return out;
   }
+
+  // Lightweight summary of every table, for the monitoring dashboard.
+  snapshot(): { id: string; status: string; visibility: string; seated: number; format: MatchFormat; rated: boolean }[] {
+    return [...this.tables.values()].map((t) => ({
+      id: t.id,
+      status: t.status,
+      visibility: t.visibility,
+      seated: t.seatedCount,
+      format: t.format,
+      rated: t.rated,
+    }));
+  }
 }
 
 function sameFormat(a: MatchFormat, b: MatchFormat): boolean {

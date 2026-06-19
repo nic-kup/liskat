@@ -110,6 +110,13 @@ export function historyFor(userId: string, limit = 50): MatchRecord[] {
   return mine.slice(-limit).reverse();
 }
 
+export function matchCount(): number {
+  return matches.length;
+}
+export function ratedPlayerCount(): number {
+  return ratings.size;
+}
+
 // Docks a player's rating for a match type (e.g. forfeiting a ranked game by
 // leaving mid-match). Floored so it can't go absurdly low. Returns points lost.
 export async function applyPenalty(userId: string, type: MatchType, amount: number): Promise<number> {
