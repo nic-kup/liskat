@@ -55,10 +55,17 @@
     if (round.phase === 'declaring') return round.declarerSlot ?? -1;
     return -1;
   });
-  const turnSecondsLeft = $derived.by(() => {
-    if (round?.turnRemainingMs == null) return null;
+  // The active player's clock, split into the per-move 10s and the reserve.
+  // While base time remains it shows "Xs + Ys"; once it's eating into the
+  // reserve it shows just the reserve, in red.
+  const clockDisplay = $derived.by(() => {
+    if (round?.turnRemainingMs == null || clockSlot < 0) return null;
     void clockTick; // re-evaluate on each tick
-    return Math.max(0, Math.ceil((turnBaseMs - (Date.now() - turnBaseAt)) / 1000));
+    const total = Math.max(0, turnBaseMs - (Date.now() - turnBaseAt));
+    const reserve = round.banks?.[clockSlot] ?? 0;
+    const base = total - reserve;
+    if (base > 0) return { text: `${Math.ceil(base / 1000)}s + ${Math.ceil(reserve / 1000)}s`, reserve: false };
+    return { text: `${Math.ceil(total / 1000)}s`, reserve: true };
   });
   function bankSeconds(slot: number): number {
     return Math.ceil((round?.banks?.[slot] ?? 0) / 1000);
@@ -213,7 +220,7 @@
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
-              {#if clockSlot === p.slot}<span class="clock" class:low={(turnSecondsLeft ?? 99) <= 5}>⏱ {turnSecondsLeft}s</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}
+              {#if clockSlot === p.slot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}
               {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
@@ -339,7 +346,7 @@
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           <strong>{me?.nick}</strong>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
-          {#if clockSlot === mySlot}<span class="clock" class:low={(turnSecondsLeft ?? 99) <= 5}>⏱ {turnSecondsLeft}s</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{/if}
+          {#if clockSlot === mySlot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{/if}
           {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing' && isMyTurn()}
@@ -463,8 +470,8 @@
     color: var(--muted);
   }
   .clock.low {
-    background: #b00020;
-    color: #fff;
+    background: none;
+    color: #ff5252;
     font-weight: 700;
   }
   .dealer-chip {
