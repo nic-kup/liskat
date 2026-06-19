@@ -5,6 +5,7 @@
 
   let nick = $state(localStorage.getItem('liskat.nick') ?? '');
   let joinId = $state('');
+  let showCreate = $state(false);
 
   const QUICK: { label: string; sub: string; format: MatchFormat }[] = [
     { label: '6 deals', sub: 'quick', format: { kind: 'deals', deals: 6 } },
@@ -27,8 +28,12 @@
     quickMatch(format);
   }
   function onCreatePrivate() {
+    showCreate = true;
+  }
+  function chooseCreate(format: MatchFormat) {
     ensureNick();
-    createTable('private', QUICK[1].format);
+    createTable('private', format);
+    showCreate = false;
   }
   function onJoin() {
     const id = joinId.trim().replace(/.*\//, '').replace(/\?table=/, '');
@@ -50,7 +55,6 @@
 <div class="lobby">
   <section class="quick">
     <h2>Quick match</h2>
-    <p class="hint">One click — you're in a table, waiting for two more players.</p>
     <div class="grid">
       {#each QUICK as q}
         <button class="qbtn" onclick={() => onQuick(q.format)}>
@@ -81,7 +85,7 @@
   <section class="public">
     <h2>Open public tables</h2>
     {#if $conn.tables.length === 0}
-      <p class="muted">None open — quick-match above to start one.</p>
+      <p class="muted">None open.</p>
     {:else}
       <ul>
         {#each $conn.tables as t}
@@ -98,6 +102,23 @@
     <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
   </footer>
 </div>
+
+{#if showCreate}
+  <div class="overlay" role="presentation" onclick={() => (showCreate = false)}>
+    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+      <h2>Private table — choose a game type</h2>
+      <div class="grid">
+        {#each QUICK as q}
+          <button class="qbtn" onclick={() => chooseCreate(q.format)}>
+            <span class="big">{q.label}</span>
+            <span class="sub">{q.sub}</span>
+          </button>
+        {/each}
+      </div>
+      <button class="cancel" onclick={() => (showCreate = false)}>Cancel</button>
+    </div>
+  </div>
+{/if}
 
 <style>
   .topright {
@@ -236,5 +257,27 @@
   }
   footer .on {
     color: #7fe3a3;
+  }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  .modal {
+    background: #0c3b25;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 16px;
+    padding: 24px;
+    width: min(520px, 92vw);
+  }
+  .modal h2 {
+    margin: 0 0 14px;
+  }
+  .cancel {
+    margin-top: 14px;
   }
 </style>
