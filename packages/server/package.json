@@ -5,8 +5,9 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "start": "node --experimental-strip-types src/index.ts",
-    "dev": "node --watch --experimental-strip-types src/index.ts",
+    "start": "bun run src/index.ts",
+    "dev": "bun --watch src/index.ts",
+    "start:node": "node --experimental-strip-types src/index.ts",
     "test": "node --test --experimental-strip-types test/*.test.ts"
   },
   "dependencies": {

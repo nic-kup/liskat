@@ -21,13 +21,19 @@ The engine has **zero dependencies** and runs on Node's built-in test runner
 and type stripping — no build step.
 
 ```bash
-npm install                              # all workspace deps
-npm test                                 # run all package test suites
-cd packages/server && npm start          # game server on :8080
-cd packages/client && npm run dev        # web client on :5173 (proxies /ws -> :8080)
+npm install        # all workspace deps
+npm test           # run all package test suites (engine + server)
+
+# from the repo root — two terminals:
+bun run server     # game server on :8080 (Bun, hot-reload via --watch)
+bun run client     # web client on :5173 (proxies /ws -> :8080)
 ```
 
 Then open http://localhost:5173, pick a nickname, and create or quick-match a table.
+
+The server is plain `node:http` + `ws`, so it runs on **Bun** (`bun run server`,
+the default) *or* Node (`cd packages/server && npm run start:node`). Bun needs no
+build flags and gives instant hot-reload.
 
 ## Graphics
 
