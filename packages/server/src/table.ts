@@ -22,6 +22,14 @@ import type { ClientAction } from './protocol.ts';
 const BETWEEN_DEALS_MS = 6000;
 const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table before it is swept
 
+// Move clock: every player gets TURN_BASE_MS for each decision, drawing on a
+// personal time bank once that runs out. The bank starts at BANK_START_MS and
+// grows by BANK_PER_DEAL_MS at the start of each new deal. Run the clock to
+// zero and a random legal move is played for you.
+const TURN_BASE_MS = 10_000;
+const BANK_START_MS = 30_000;
+const BANK_PER_DEAL_MS = 10_000;
+
 export interface HistoryEntry {
   deal: number;
   declarerSlot: number | null;
@@ -55,6 +63,14 @@ export class Table {
   dealIndex = 0;
   chat: { nick: string; slot: number; text: string }[] = [];
   history: HistoryEntry[] = [];
+
+  // Move clock, per slot. timeBank is remaining reserve (ms); turnTimer fires
+  // when the active player runs out; timedSlot/turnStart track the clock that
+  // is currently running so overtime can be charged to the right player.
+  private timeBank: number[] = [BANK_START_MS, BANK_START_MS, BANK_START_MS];
+  private turnTimer: ReturnType<typeof setTimeout> | null = null;
+  private turnStart = 0;
+  private timedSlot = -1;
 
   // Injected so the server can re-send views whenever something changes.
   onChange: () => void = () => {};
@@ -102,6 +118,7 @@ export class Table {
     // If a game was in progress, it cannot continue with an empty seat.
     if (this.status === 'playing' || this.status === 'between') {
       this.status = this.match ? 'over' : 'waiting';
+      this.clearTurnTimer();
     }
   }
 
@@ -112,12 +129,16 @@ export class Table {
   private startMatch(): void {
     this.match = createMatch(this.format);
     this.dealIndex = 0;
+    this.timeBank = [BANK_START_MS, BANK_START_MS, BANK_START_MS];
     this.startDeal();
   }
 
   private startDeal(): void {
     this.round = createRound(deal(() => Math.random()));
     this.status = 'playing';
+    // Top up everyone's time bank for the new deal (deal 1 keeps the start value).
+    if (this.dealIndex > 0) this.timeBank = this.timeBank.map((b) => b + BANK_PER_DEAL_MS);
+    this.armTimer();
   }
 
   // Applies a player's action to the current round, then advances if the round
@@ -134,7 +155,111 @@ export class Table {
     } catch (e) {
       return (e as Error).message;
     }
+    this.charge();
     this.advance();
+    this.armTimer();
+    return null;
+  }
+
+  // ---- Move clock ----------------------------------------------------------
+
+  // The slot that must act right now, or -1 when no one is on the clock
+  // (between deals, during the brief trick reveal, or a finished round).
+  private activeSlot(): number {
+    const r = this.round;
+    if (!r || this.status !== 'playing') return -1;
+    if (r.phase === 'bidding') {
+      const role = r.bidding.awaiting === 'response' ? r.bidding.responder : r.bidding.asker;
+      return role === null ? -1 : slotOfRole(role, this.dealIndex);
+    }
+    if (r.phase === 'declaring') return r.declarer === null ? -1 : slotOfRole(r.declarer, this.dealIndex);
+    if (r.phase === 'playing') return r.trickComplete ? -1 : slotOfRole(r.turn, this.dealIndex);
+    return -1;
+  }
+
+  private clearTurnTimer(): void {
+    if (this.turnTimer) {
+      clearTimeout(this.turnTimer);
+      this.turnTimer = null;
+    }
+  }
+
+  // Starts the clock for whoever is on turn now.
+  private armTimer(): void {
+    this.clearTurnTimer();
+    const slot = this.activeSlot();
+    this.timedSlot = slot;
+    if (slot < 0) {
+      this.turnStart = 0;
+      return;
+    }
+    const ms = TURN_BASE_MS + Math.max(0, this.timeBank[slot]);
+    this.turnStart = Date.now();
+    this.turnTimer = setTimeout(() => this.onTimeout(slot), ms);
+    // Don't let a pending clock keep the process (or a test runner) alive.
+    (this.turnTimer as { unref?: () => void }).unref?.();
+  }
+
+  // Time left on the active player's clock right now (base + bank), or null.
+  private turnRemainingMs(): number | null {
+    const slot = this.activeSlot();
+    if (slot < 0 || this.turnStart === 0) return null;
+    const allowance = TURN_BASE_MS + Math.max(0, this.timeBank[slot]);
+    return Math.max(0, allowance - (Date.now() - this.turnStart));
+  }
+
+  // Charges any time spent beyond the base allowance to the active player's bank.
+  private charge(): void {
+    if (this.timedSlot < 0 || this.turnStart === 0) return;
+    const over = Date.now() - this.turnStart - TURN_BASE_MS;
+    if (over > 0) this.timeBank[this.timedSlot] = Math.max(0, this.timeBank[this.timedSlot] - over);
+    this.turnStart = 0;
+  }
+
+  // Fired when a player's clock hits zero: drain their bank and play a random
+  // legal move on their behalf, then carry on.
+  private onTimeout(slot: number): void {
+    this.turnTimer = null;
+    if (this.status !== 'playing' || !this.round) return;
+    if (this.activeSlot() !== slot) return; // state already moved on
+    this.timeBank[slot] = 0;
+    const action = this.randomAction(slot);
+    if (action) {
+      try {
+        this.round = applyAction(this.round, action);
+      } catch {
+        return;
+      }
+    }
+    this.turnStart = 0;
+    this.advance();
+    this.armTimer();
+    this.onChange();
+  }
+
+  // A legal move to play when a player runs out of time.
+  private randomAction(slot: number): Action | null {
+    const r = this.round!;
+    const role = roleOfSlot(slot, this.dealIndex);
+    if (r.phase === 'bidding') {
+      // A timeout in the auction is a pass — the safe move that never commits a
+      // player to a contract they didn't choose.
+      return { type: 'pass', seat: role };
+    }
+    if (r.phase === 'declaring') {
+      if (r.declareStep === 'choose') return { type: 'playHand', seat: role };
+      if (r.declareStep === 'discard') {
+        const hand = r.hands[role];
+        return { type: 'discard', seat: role, cards: [hand[0], hand[1]] };
+      }
+      if (r.declareStep === 'contract') return { type: 'declareContract', seat: role, contract: { type: 'suit', suit: 'C' } };
+      return null;
+    }
+    if (r.phase === 'playing') {
+      const legal = legalCards(r, role);
+      if (legal.length === 0) return null;
+      return { type: 'playCard', seat: role, card: legal[Math.floor(Math.random() * legal.length)] };
+    }
     return null;
   }
 
@@ -146,6 +271,7 @@ export class Table {
       this.schedule(() => {
         this.round = applyAction(this.round!, { type: 'collect' });
         if (this.round.phase === 'finished') this.endRound();
+        this.armTimer();
         this.onChange();
       }, TRICK_REVEAL_MS);
     } else if (r.phase === 'finished') {
@@ -166,10 +292,12 @@ export class Table {
       scores: [...this.match!.scores],
     });
     this.status = 'between';
+    this.clearTurnTimer();
     this.schedule(() => {
       this.dealIndex += 1;
       if (this.match!.finished) {
         this.status = 'over';
+        this.clearTurnTimer();
       } else {
         this.startDeal();
       }
@@ -239,6 +367,8 @@ export class Table {
         passedIn: r.passedIn,
         result: finished ? r.result : null,
         skat: finished ? r.skat : null,
+        banks: this.timeBank.slice(),
+        turnRemainingMs: this.turnRemainingMs(),
       };
     }
 
@@ -307,4 +437,6 @@ export interface RoundView {
   passedIn: boolean;
   result: RoundState['result'];
   skat: [Card, Card] | null;
+  banks: number[]; // remaining time-bank reserve per slot (ms)
+  turnRemainingMs: number | null; // clock left for the player on turn (ms)
 }

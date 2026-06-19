@@ -17,11 +17,52 @@
   const round = $derived(view?.round);
   const mySlot = $derived(view?.youSlot ?? -1);
   const me = $derived(view?.players.find((p) => p.you));
-  const opponents = $derived(view ? view.players.filter((p) => p.slot !== mySlot) : []);
+  const myRole = $derived(me?.role ?? 0);
+  // Seat the opponents so the order of play always reads clockwise from my
+  // point of view: the player who acts right after me sits on the left, the
+  // next one on the right. (Sort by how far each is after me in turn order.)
+  const opponents = $derived.by(() => {
+    if (!view) return [];
+    return view.players
+      .filter((p) => p.slot !== mySlot)
+      .sort((a, b) => ((a.role - myRole + 3) % 3) - ((b.role - myRole + 3) % 3));
+  });
   const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
   const myIdentity = $derived(identityForSlot(mySlot));
   // The dealer is rearhand (role 2); a chip marks their seat.
   const dealerSlot = $derived(view?.players.find((p) => p.role === 2)?.slot ?? -1);
+
+  // ---- Move clock ----------------------------------------------------------
+  // The server sends the active player's remaining time once per update; we tick
+  // locally so the countdown moves smoothly between updates.
+  let clockTick = $state(0);
+  let turnBaseMs = 0;
+  let turnBaseAt = 0;
+  $effect(() => {
+    // re-capture whenever the server's snapshot changes
+    turnBaseMs = round?.turnRemainingMs ?? 0;
+    turnBaseAt = Date.now();
+  });
+  $effect(() => {
+    const iv = setInterval(() => (clockTick = Date.now()), 250);
+    return () => clearInterval(iv);
+  });
+  // The seat whose live countdown we show.
+  const clockSlot = $derived.by(() => {
+    if (!round || round.turnRemainingMs == null) return -1;
+    if (round.phase === 'playing') return round.trickComplete ? -1 : round.turnSlot;
+    if (round.phase === 'bidding') return bidActiveSlot;
+    if (round.phase === 'declaring') return round.declarerSlot ?? -1;
+    return -1;
+  });
+  const turnSecondsLeft = $derived.by(() => {
+    if (round?.turnRemainingMs == null) return null;
+    void clockTick; // re-evaluate on each tick
+    return Math.max(0, Math.ceil((turnBaseMs - (Date.now() - turnBaseAt)) / 1000));
+  });
+  function bankSeconds(slot: number): number {
+    return Math.ceil((round?.banks?.[slot] ?? 0) / 1000);
+  }
 
   // The seat currently "speaking" during the auction (for highlighting).
   const bidActiveSlot = $derived.by(() => {
@@ -127,6 +168,7 @@
           <li><b>Null</b> — no trumps; you win by losing every trick</li>
           <li><b>Ouvert</b> — play with your hand face-up for a higher value. Null Ouvert is common; a suit/grand Ouvert must also be played (and announced) for Schwarz.</li>
         </ul>
+        <div class="hline"><b>Clock (⏱):</b> 10 seconds per move plus a personal time bank — 30s to start, +10s each deal. Spend longer than 10s and the extra comes out of your bank. Run the bank to zero and a random legal move is played for you (a pass during bidding).</div>
         <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
       </div>
     {/if}
@@ -166,11 +208,12 @@
         {#each opponents as p}
           {@const id = identityForSlot(p.slot)}
           {@const say = round?.phase === 'bidding' ? bidSay(p.role) : ''}
-          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
+          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot} style="--seat-color:{id.color}">
             <div class="who">
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
+              {#if clockSlot === p.slot}<span class="clock" class:low={(turnSecondsLeft ?? 99) <= 5}>⏱ {turnSecondsLeft}s</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}
               {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
@@ -193,7 +236,9 @@
             {#if round?.passedIn}
               <h3>Deal passed — no game.</h3>
             {:else if round?.result}
+              {@const did = identityForSlot(round.declarerSlot ?? 0)}
               <h3 class:won={round.result.won} class:lost={!round.result.won}>
+                <span class="marker" style="color:{did.color}">{did.marker}</span>
                 {slotName(round.declarerSlot ?? 0)} {round.result.won ? 'won' : 'lost'}
                 {contractLabel(round.contract)} for {round.result.value}
                 {round.result.schneider ? '· Schneider' : ''}{round.result.schwarz ? '· Schwarz' : ''}
@@ -280,21 +325,25 @@
                 <CardView card={t.card} width={88} />
               </div>
             {/each}
-            {#if round.trick.length === 0}<p class="muted">{slotName(round.turnSlot)} leads…</p>{/if}
+            {#if round.trick.length === 0}
+              {@const lid = identityForSlot(round.turnSlot)}
+              <p class="muted"><span class="marker" style="color:{lid.color}">{lid.marker}</span> {slotName(round.turnSlot)} leads…</p>
+            {/if}
           </div>
         {/if}
       </div>
 
       <!-- My hand -->
-      <div class="myseat" class:turn={isMyTurn()}>
+      <div class="myseat" class:turn={isMyTurn()} style="--seat-color:{myIdentity.color}">
         <div class="who">
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           <strong>{me?.nick}</strong>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
+          {#if clockSlot === mySlot}<span class="clock" class:low={(turnSecondsLeft ?? 99) <= 5}>⏱ {turnSecondsLeft}s</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{/if}
           {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
-          {#if round?.phase === 'playing'}
-            <span class="turnhint" class:active={isMyTurn()}>{isMyTurn() ? 'your turn' : `${slotName(round.turnSlot)}'s turn`}</span>
+          {#if round?.phase === 'playing' && isMyTurn()}
+            <span class="turnhint active">your turn</span>
           {/if}
         </div>
         <div class="hand">
@@ -313,8 +362,9 @@
       </div>
 
       {#if view.status === 'over' && view.match}
+        {@const wid = identityForSlot(view.match.winner ?? 0)}
         <div class="gameover">
-          <h2>Match over — winner: {slotName(view.match.winner ?? 0)}</h2>
+          <h2>Match over — winner: <span class="marker" style="color:{wid.color}">{wid.marker}</span> {slotName(view.match.winner ?? 0)}</h2>
           <p>{view.players.map((p) => `${p.nick}: ${view.match!.scores[p.slot]}`).join(' · ')}</p>
           <button class="primary" onclick={leaveTable}>Back to lobby</button>
         </div>
@@ -395,7 +445,27 @@
   }
   .seat.turn,
   .myseat.turn {
-    background: rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.1);
+    box-shadow:
+      0 0 0 2px var(--seat-color, #ffd54a),
+      0 0 20px -2px var(--seat-color, #ffd54a);
+  }
+  .clock {
+    font-variant-numeric: tabular-nums;
+    font-size: 12px;
+    border-radius: 10px;
+    padding: 1px 7px;
+    background: rgba(255, 255, 255, 0.12);
+    color: #f2f5f3;
+  }
+  .clock.bank {
+    background: none;
+    color: var(--muted);
+  }
+  .clock.low {
+    background: #b00020;
+    color: #fff;
+    font-weight: 700;
   }
   .dealer-chip {
     background: #fff;
