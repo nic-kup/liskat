@@ -1,0 +1,123 @@
+import type { Card, Contract } from './types.ts';
+import { cardsEqual } from './cards.ts';
+import { trumpsHighToLow } from './ordering.ts';
+
+// Base game values.
+const SUIT_BASE: Record<string, number> = { D: 9, H: 10, S: 11, C: 12 };
+const GRAND_BASE = 24;
+
+// Null is scored at fixed values, never multiplied.
+const NULL_VALUES = {
+  plain: 23,
+  hand: 35,
+  ouvert: 46,
+  handOuvert: 59,
+};
+
+export function baseValue(contract: Contract): number {
+  if (contract.type === 'null') return NULL_VALUES.plain; // overridden in computeGameValue
+  if (contract.type === 'grand') return GRAND_BASE;
+  return SUIT_BASE[contract.suit];
+}
+
+// "Matadors" (Spitzen): the run of consecutive top trumps the declarer holds,
+// counting down from ♣J. If the declarer holds ♣J they play "with" N; if not,
+// they play "without" N (the count of top trumps they are missing in a row).
+// The number N is the same magnitude in either case.
+export function countMatadors(declarerCards: Card[], contract: Contract): number {
+  const order = trumpsHighToLow(contract);
+  if (order.length === 0) return 0; // null
+  const has = (c: Card) => declarerCards.some((d) => cardsEqual(d, c));
+  const topHeld = has(order[0]);
+  let n = 0;
+  for (const trump of order) {
+    if (has(trump) === topHeld) n++;
+    else break;
+  }
+  return n;
+}
+
+export interface GameOutcome {
+  // Card points the declarer collected (tricks won + the two skat cards).
+  declarerCardPoints: number;
+  // Number of tricks the defenders won (for schwarz detection).
+  defenderTricks: number;
+  // For null: did the declarer win at least one trick? (loses the game if so)
+  declarerWonATrick?: boolean;
+}
+
+export interface Announcements {
+  hand: boolean; // declarer did not pick up the skat
+  schneiderAnnounced: boolean;
+  schwarzAnnounced: boolean;
+  ouvert: boolean; // open hand
+}
+
+export interface GameValueResult {
+  won: boolean;
+  value: number; // the positive game value
+  multiplier: number; // suit/grand only, for display
+  schneider: boolean; // declarer made 90+ (or held opponents to <31)
+  schwarz: boolean; // opponents took no trick
+}
+
+// Computes whether the declarer won and the game value, given the contract,
+// the declarer's full set of trump-relevant cards (the 10 played + 2 skat),
+// the result of play, the bid, and any announcements.
+export function computeGameValue(
+  contract: Contract,
+  declarerCards: Card[],
+  outcome: GameOutcome,
+  announcements: Announcements,
+  bid: number,
+): GameValueResult {
+  if (contract.type === 'null') {
+    return computeNull(announcements, outcome, bid);
+  }
+
+  const points = outcome.declarerCardPoints;
+  const schneider = points >= 90;
+  const schwarz = outcome.defenderTricks === 0;
+  const madePrimary = points >= 61; // need more than half of 120
+
+  const matadors = countMatadors(declarerCards, contract);
+  let multiplier = matadors + 1; // +1 for the game itself
+  if (announcements.hand) multiplier += 1;
+  if (schneider) multiplier += 1;
+  if (announcements.schneiderAnnounced) multiplier += 1;
+  if (schwarz) multiplier += 1;
+  if (announcements.schwarzAnnounced) multiplier += 1;
+  if (announcements.ouvert) multiplier += 1;
+
+  const value = baseValue(contract) * multiplier;
+
+  // Loss conditions: failed to reach 61, OR overbid (game worth less than bid),
+  // OR announced schneider/schwarz but didn't deliver.
+  let won = madePrimary && value >= bid;
+  if (announcements.schneiderAnnounced && !schneider) won = false;
+  if (announcements.schwarzAnnounced && !schwarz) won = false;
+
+  return { won, value, multiplier, schneider, schwarz };
+}
+
+function computeNull(
+  announcements: Announcements,
+  outcome: GameOutcome,
+  bid: number,
+): GameValueResult {
+  let value: number;
+  if (announcements.hand && announcements.ouvert) value = NULL_VALUES.handOuvert;
+  else if (announcements.ouvert) value = NULL_VALUES.ouvert;
+  else if (announcements.hand) value = NULL_VALUES.hand;
+  else value = NULL_VALUES.plain;
+
+  // Declarer wins null only by losing every trick, and must not be overbid.
+  const won = outcome.declarerWonATrick === false && value >= bid;
+  return { won, value, multiplier: 1, schneider: false, schwarz: false };
+}
+
+// Translates a game result into a points delta for a running session score.
+// Default rule (common club scoring): win => +value, loss => -2*value.
+export function sessionDelta(result: GameValueResult): number {
+  return result.won ? result.value : -2 * result.value;
+}

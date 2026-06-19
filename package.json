@@ -1,0 +1,14 @@
+{
+  "name": "liskat",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Liskat — play Skat online for free.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test --workspaces --if-present"
+  },
+  "license": "AGPL-3.0-or-later"
+}

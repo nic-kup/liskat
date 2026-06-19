@@ -1,0 +1,11 @@
+{
+  "name": "@liskat/engine",
+  "version": "0.0.1",
+  "description": "Pure Skat rules engine: cards, bidding, trick resolution, scoring.",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "test": "node --test --experimental-strip-types test/*.test.ts"
+  },
+  "license": "AGPL-3.0-or-later"
+}
