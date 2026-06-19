@@ -13,7 +13,7 @@ idea most worth borrowing from lichess.
 
 | Package            | Role                                                              | Status |
 | ------------------ | ---------------------------------------------------------------- | ------ |
-| `packages/engine`  | Pure Skat rules: cards, bidding, trick resolution, scoring        | ✅ started |
+| `packages/engine`  | Pure Skat rules: bidding, round state machine, scoring, match formats | ✅ done (25 tests) |
 | `packages/server`  | Authoritative game server + matchmaking lobby (WebSocket)         | planned |
 | `packages/client`  | Web UI: the table, the cards (SVG)                                | planned |
 
