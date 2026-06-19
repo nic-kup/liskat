@@ -11,6 +11,7 @@ export interface ConnState {
   nick: string;
   account: string | null; // logged-in username, or null when anonymous
   searching: MatchFormat | null; // the format we're queued for, or null
+  queues: Record<string, number>; // live matchmaking-queue sizes per format key
   tables: LobbyEntry[];
   view: TableView | null;
   error: string | null;
@@ -44,6 +45,7 @@ export const conn = writable<ConnState>({
   nick: '',
   account: ls(ACCOUNT_KEY),
   searching: null,
+  queues: {},
   tables: [],
   view: null,
   error: null,
@@ -101,6 +103,8 @@ export function connect(): void {
           return { ...s, searching: msg.format as MatchFormat };
         case 'unqueued':
           return { ...s, searching: null };
+        case 'queues':
+          return { ...s, queues: msg.counts as Record<string, number> };
         case 'table':
           return { ...s, view: msg.view as TableView, searching: null, error: null };
         case 'left':

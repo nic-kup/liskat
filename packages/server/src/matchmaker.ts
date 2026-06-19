@@ -31,9 +31,29 @@ export class Matchmaker {
   private formats = new Map<string, MatchFormat>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private processing = false;
+  private lastSig = '';
 
   // Called when a trio is formed. The wiring layer turns it into a table.
   onMatch: (format: MatchFormat, ids: string[]) => void = () => {};
+  // Called when the queue sizes change, so the lobby can show live counts.
+  onChange: (counts: Record<string, number>) => void = () => {};
+
+  // Number of players waiting per format key (drained formats are absent → 0).
+  counts(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [key, q] of this.queues) out[key] = q.length;
+    return out;
+  }
+
+  // Broadcasts queue counts, but only when they actually changed.
+  private notify(): void {
+    const counts = this.counts();
+    const sig = JSON.stringify(counts);
+    if (sig !== this.lastSig) {
+      this.lastSig = sig;
+      this.onChange(counts);
+    }
+  }
 
   enqueue(searcher: Searcher, format: MatchFormat): void {
     this.dequeue(searcher.id);
@@ -44,6 +64,7 @@ export class Matchmaker {
     this.queues.set(key, q);
     this.ensureTimer();
     this.process();
+    this.notify();
   }
 
   dequeue(id: string): boolean {
@@ -56,6 +77,7 @@ export class Matchmaker {
         if (q.length === 0) this.queues.delete(key);
       }
     }
+    if (removed) this.notify();
     return removed;
   }
 
@@ -110,6 +132,7 @@ export class Matchmaker {
       clearInterval(this.timer);
       this.timer = null;
     }
+    this.notify();
   }
 
   private ensureTimer(): void {

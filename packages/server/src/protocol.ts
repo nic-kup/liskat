@@ -38,6 +38,7 @@ export type ServerMessage =
   | { t: 'table'; view: unknown } // a personalized TableView (see view.ts)
   | { t: 'queued'; format: MatchFormat } // you're in the matchmaking queue
   | { t: 'unqueued' } // you left the queue
+  | { t: 'queues'; counts: Record<string, number> } // live queue sizes per format
   | { t: 'left' }
   | { t: 'error'; msg: string };
 

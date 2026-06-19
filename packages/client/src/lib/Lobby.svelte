@@ -6,6 +6,15 @@
 
   const account = $derived($conn.account);
   const searching = $derived($conn.searching);
+  const queues = $derived($conn.queues);
+
+  // Server queue key for a format (matches matchmaker.formatKey).
+  function queueKey(f: MatchFormat): string {
+    return f.kind === 'deals' ? `deals-${f.deals}` : `race-${f.target}`;
+  }
+  function queueCount(f: MatchFormat): number {
+    return queues[queueKey(f)] ?? 0;
+  }
 
   let joinId = $state('');
   let showCreate = $state(false);
@@ -60,9 +69,11 @@
     <h2>Quick match</h2>
     <div class="grid">
       {#each QUICK as q}
+        {@const n = queueCount(q.format)}
         <button class="qbtn" onclick={() => onQuick(q.format)}>
           <span class="big">{q.label}</span>
           <span class="sub">{q.sub}</span>
+          <span class="queue">{n} in queue</span>
         </button>
       {/each}
     </div>
@@ -172,6 +183,15 @@
     color: var(--muted);
   }
   .qbtn:hover .sub {
+    color: #e8f5ee;
+  }
+  .queue {
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .qbtn:hover .queue {
     color: #e8f5ee;
   }
   .row {

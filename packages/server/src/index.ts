@@ -60,6 +60,14 @@ function broadcastLobby(): void {
   }
 }
 
+// Pushes live matchmaking-queue sizes to everyone in the lobby.
+function broadcastQueues(counts: Record<string, number> = matchmaker.counts()): void {
+  for (const c of clients.values()) {
+    if (c.tableId === null) send(c.ws, { t: 'queues', counts });
+  }
+}
+matchmaker.onChange = (counts) => broadcastQueues(counts);
+
 function bindTable(table: Table): void {
   table.onChange = () => {
     broadcastTable(table);
@@ -102,6 +110,7 @@ function leaveTable(client: Client): void {
   const table = lobby.get(client.tableId);
   client.tableId = null;
   send(client.ws, { t: 'left' });
+  send(client.ws, { t: 'queues', counts: matchmaker.counts() });
   if (table) {
     table.removePlayer(client.id);
     broadcastTable(table);
@@ -422,6 +431,7 @@ wss.on('connection', (ws) => {
   byId.set(client.id, client);
   send(ws, { t: 'welcome', playerId: client.id });
   send(ws, { t: 'tables', tables: lobby.publicList() });
+  send(ws, { t: 'queues', counts: matchmaker.counts() });
 
   ws.on('message', (data) => {
     let msg: ClientMessage;
