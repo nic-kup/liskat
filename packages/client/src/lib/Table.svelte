@@ -14,11 +14,9 @@
   }
 
   let confirmLeave = $state(false);
-  // Leaving a rated game that's still in progress forfeits rating (only matters
-  // if you're logged in — anonymous players have no rating to lose).
-  const willForfeit = $derived(
-    !!$conn.account && (view?.rated ?? false) && (view?.status === 'playing' || view?.status === 'between'),
-  );
+  // Leaving forfeits rating only in a ranked game in progress — i.e. a rated
+  // game where every player has an account (view.ranked already encodes that).
+  const willForfeit = $derived((view?.ranked ?? false) && (view?.status === 'playing' || view?.status === 'between'));
   function onLeave() {
     if (view?.status === 'over' || view?.status === 'waiting') leaveTable();
     else confirmLeave = true;

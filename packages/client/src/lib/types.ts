@@ -63,6 +63,7 @@ export interface TableView {
   status: 'waiting' | 'playing' | 'between' | 'over';
   timed: boolean;
   rated: boolean;
+  ranked: boolean;
   dealIndex: number;
   youSlot: number | null;
   players: PlayerView[];

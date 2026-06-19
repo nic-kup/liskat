@@ -83,7 +83,8 @@ const LEAVE_PENALTY = 50;
 function forfeitIfRated(client: Client, table: Table | undefined): void {
   if (!table || !table.rated) return;
   if (table.status !== 'playing' && table.status !== 'between') return;
-  if (!client.id.startsWith('u_')) return; // anonymous players have no rating
+  // Only ranked games affect Elo — i.e. every seat must be a logged-in account.
+  if (!table.seats.every((s) => !!s && s.id.startsWith('u_'))) return;
   const type = ratedType(table.format);
   if (type) void applyPenalty(client.id, type, LEAVE_PENALTY);
 }

@@ -399,6 +399,9 @@ export class Table {
       status: this.status,
       timed: this.timed,
       rated: this.rated,
+      // Actually counts toward Elo only when it's a rated game AND every seat is
+      // a logged-in account (account ids are prefixed "u_").
+      ranked: this.rated && this.seats.every((s) => !!s && s.id.startsWith('u_')),
       dealIndex: this.dealIndex,
       youSlot: youSlot >= 0 ? youSlot : null,
       players,
@@ -430,6 +433,7 @@ export interface TableView {
   status: TableStatus;
   timed: boolean;
   rated: boolean;
+  ranked: boolean;
   dealIndex: number;
   youSlot: number | null;
   players: { slot: number; role: Seat; nick: string | null; occupied: boolean; you: boolean }[];
