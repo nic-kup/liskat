@@ -1,4 +1,5 @@
 import type { Card, Contract, Rank, Suit } from './types.ts';
+import { cardId } from './cards.ts';
 
 // In a suit or grand game the four Jacks are always trumps and outrank
 // everything. Their order among themselves is fixed: ♣ > ♠ > ♥ > ♦.
@@ -74,4 +75,35 @@ export function trumpsHighToLow(contract: Contract): Card[] {
   const suit = contract.suit;
   const nonJack: Card[] = [...SUIT_RANK_ASC].reverse().map((rank) => ({ suit, rank }));
   return [...jacks, ...nonJack];
+}
+
+const SIDE_DESC: Rank[] = ['A', '10', 'K', 'Q', '9', '8', '7']; // no Jack — Jacks are trumps
+const NULL_DESC: Rank[] = ['A', 'K', 'Q', 'J', '10', '9', '8', '7'];
+const SUIT_DISPLAY_ORDER: Suit[] = ['C', 'S', 'H', 'D'];
+
+// The full deck laid out left-to-right the way a player would hold it: trumps
+// (Jacks first, then the trump suit) descending, then the side suits grouped
+// and descending. With no contract yet (bidding/declaring) we default to a
+// grand-style layout so the four Jacks sit together on the left.
+function displayList(contract: Contract): Card[] {
+  if (contract.type === 'null') {
+    const out: Card[] = [];
+    for (const suit of SUIT_DISPLAY_ORDER) for (const rank of NULL_DESC) out.push({ suit, rank });
+    return out;
+  }
+  const trumpSuit = contract.type === 'suit' ? contract.suit : null;
+  const out: Card[] = [...trumpsHighToLow(contract)];
+  for (const suit of SUIT_DISPLAY_ORDER) {
+    if (suit === trumpSuit) continue; // its cards are already among the trumps
+    for (const rank of SIDE_DESC) out.push({ suit, rank });
+  }
+  return out;
+}
+
+// Sorts a hand for display. Pass the active contract once known; otherwise a
+// sensible default (grand-style, Jacks high) is used.
+export function sortHand(hand: Card[], contract?: Contract): Card[] {
+  const order = displayList(contract ?? { type: 'grand' });
+  const index = new Map(order.map((c, i) => [cardId(c), i]));
+  return [...hand].sort((a, b) => (index.get(cardId(a)) ?? 0) - (index.get(cardId(b)) ?? 0));
 }

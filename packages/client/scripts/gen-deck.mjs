@@ -26,8 +26,8 @@ const FONT = "'DejaVu Sans','Arial Unicode MS','Segoe UI Symbol',sans-serif";
 function cardSvg(suit, rank) {
   const color = COLOR[suit];
   const g = GLYPH[suit];
-  const courts = { J: 'B', Q: 'D', K: 'K', A: 'A' }; // German labels: Bube, Dame, König, As
-  const centerLabel = courts[rank] ?? rank;
+  // French-suited deck uses J/Q/K/A. (A German-suited deck would use B/D/K/A.)
+  const centerLabel = rank;
   const isCourt = rank === 'J' || rank === 'Q' || rank === 'K';
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" font-family="${FONT}">
   <rect x="4" y="4" width="242" height="342" rx="20" ry="20" fill="#fffdf7" stroke="#d8d2c4" stroke-width="2"/>

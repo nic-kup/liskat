@@ -12,6 +12,7 @@ export type ClientMessage =
   | { t: 'quickMatch'; format?: MatchFormat }
   | { t: 'leaveTable' }
   | { t: 'listTables' }
+  | { t: 'chat'; text: string }
   | { t: 'action'; action: ClientAction };
 
 // The seat is supplied by the server (derived from who you are), so clients

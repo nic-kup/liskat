@@ -113,6 +113,13 @@ function handle(client: Client, msg: ClientMessage): void {
       leaveTable(client);
       return;
 
+    case 'chat': {
+      if (!client.tableId) return;
+      const table = lobby.get(client.tableId);
+      if (table && table.addChat(client.id, msg.text)) broadcastTable(table);
+      return;
+    }
+
     case 'action': {
       if (!client.tableId) {
         send(client.ws, { t: 'error', msg: 'you are not at a table' });

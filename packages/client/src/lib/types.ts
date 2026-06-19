@@ -51,4 +51,5 @@ export interface TableView {
   players: PlayerView[];
   match: { scores: number[]; dealsPlayed: number; finished: boolean; winner: number | null } | null;
   round?: RoundView;
+  chat: { nick: string; text: string }[];
 }

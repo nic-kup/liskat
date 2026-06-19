@@ -13,6 +13,7 @@ import {
   type MatchState,
   type RoundState,
   type Action,
+  isChatPreset,
   type Seat,
   type Card,
 } from '@liskat/engine';
@@ -41,6 +42,7 @@ export class Table {
   match: MatchState | null = null;
   round: RoundState | null = null;
   dealIndex = 0;
+  chat: { nick: string; text: string }[] = [];
 
   // Injected so the server can re-send views whenever something changes.
   onChange: () => void = () => {};
@@ -147,6 +149,15 @@ export class Table {
     this.schedule = fn;
   }
 
+  // Adds a canned chat phrase from a seated player. Free text is rejected.
+  addChat(id: string, text: string): boolean {
+    const seat = this.seats.find((s) => s?.id === id);
+    if (!seat || !isChatPreset(text)) return false;
+    this.chat.push({ nick: seat.nick, text });
+    if (this.chat.length > 30) this.chat.shift();
+    return true;
+  }
+
   view(viewerId: string): TableView {
     const youSlot = this.slotOf(viewerId);
     const players = this.seats.map((s, slot) => ({
@@ -202,6 +213,7 @@ export class Table {
       players,
       match: this.match ? { scores: this.match.scores, dealsPlayed: this.match.dealsPlayed, finished: this.match.finished, winner: this.match.winner } : null,
       round,
+      chat: this.chat.slice(),
     };
   }
 }
@@ -222,6 +234,7 @@ export interface TableView {
   players: { slot: number; role: Seat; nick: string | null; occupied: boolean; you: boolean }[];
   match: { scores: number[]; dealsPlayed: number; finished: boolean; winner: number | null } | null;
   round?: RoundView;
+  chat: { nick: string; text: string }[];
 }
 
 export interface RoundView {

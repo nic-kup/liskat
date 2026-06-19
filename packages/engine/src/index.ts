@@ -6,3 +6,4 @@ export * from './bidding.ts';
 export * from './scoring.ts';
 export * from './round.ts';
 export * from './match.ts';
+export * from './chat.ts';

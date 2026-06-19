@@ -1,27 +1,23 @@
 <script lang="ts">
   import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable } from './ws.ts';
-  import { cardId, nextBid, BID_VALUES } from '@liskat/engine';
+  import { cardId, nextBid, sortHand } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
+  import Chat from './Chat.svelte';
 
   const view = $derived($conn.view as TableView);
   const round = $derived(view?.round);
   const mySlot = $derived(view?.youSlot ?? -1);
   const me = $derived(view?.players.find((p) => p.you));
-  const myRole = $derived(me?.role ?? null);
-
-  // Opponents, ordered for display (left, right).
   const opponents = $derived(view ? view.players.filter((p) => p.slot !== mySlot) : []);
+  const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
 
-  // Selection state for discarding two skat cards.
   let selected = $state<string[]>([]);
-  // Announcement toggles for hand games.
   let annSchneider = $state(false);
   let annSchwarz = $state(false);
   let annOuvert = $state(false);
 
   $effect(() => {
-    // Reset transient UI when the deal advances.
     view?.dealIndex;
     selected = [];
     annSchneider = annSchwarz = annOuvert = false;
@@ -92,10 +88,23 @@
   }
 </script>
 
+{#snippet hints()}
+  <div class="hints">
+    <div class="hline"><b>Game values:</b> ♦ 9 · ♥ 10 · ♠ 11 · ♣ 12 · Grand 24 · Null 23</div>
+    <ul>
+      <li><b>Suit</b> — that suit plus all four Jacks are trumps</li>
+      <li><b>Grand</b> — only the four Jacks are trumps</li>
+      <li><b>Null</b> — no trumps; you win by losing every trick</li>
+    </ul>
+    <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
+  </div>
+{/snippet}
+
 {#if view}
   <div class="table">
     <div class="topbar">
       <button class="ghost" onclick={leaveTable}>← Leave</button>
+      <span class="wordmark">liskat</span>
       <div class="info">
         {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
         · deal {view.dealIndex + 1}
@@ -121,117 +130,123 @@
       <!-- Opponents -->
       <div class="opponents">
         {#each opponents as p}
-          <div class="seat" class:turn={round?.turnSlot === p.slot}>
+          <div class="seat" class:turn={round?.phase === 'playing' && round.turnSlot === p.slot}>
             <div class="who">
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
+              {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
             <div class="backs">
               {#each Array(round?.handCounts[p.role] ?? 0) as _, i}
-                <div class="backwrap" style="margin-left:{i === 0 ? 0 : -42}px">
-                  <CardView back width={48} />
-                </div>
+                <div class="backwrap" style="margin-left:{i === 0 ? 0 : -42}px"><CardView back width={48} /></div>
               {/each}
             </div>
-            {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
           </div>
         {/each}
       </div>
 
-      <!-- Center: trick / result -->
+      <!-- Center stage -->
       <div class="center">
         {#if round?.phase === 'finished' || view.status === 'between'}
-          <div class="result">
+          <div class="panel result">
             {#if round?.passedIn}
               <h3>Deal passed — no game.</h3>
             {:else if round?.result}
               <h3 class:won={round.result.won} class:lost={!round.result.won}>
-                {slotName(round.declarerSlot ?? 0)}
-                {round.result.won ? 'won' : 'lost'}
+                {slotName(round.declarerSlot ?? 0)} {round.result.won ? 'won' : 'lost'}
                 {contractLabel(round.contract)} for {round.result.value}
                 {round.result.schneider ? '· Schneider' : ''}{round.result.schwarz ? '· Schwarz' : ''}
               </h3>
             {/if}
             <p class="muted">next deal shortly…</p>
           </div>
-        {:else if round}
-          <div class="trick">
-            {#each round.trick as t}
-              <div class="played"><CardView card={t.card} width={84} /></div>
-            {/each}
-            {#if round.trick.length === 0 && round.phase === 'playing'}
-              <p class="muted">{slotName(round.turnSlot)} leads…</p>
+        {:else if round?.phase === 'bidding'}
+          <div class="panel bidding">
+            <div class="bignum">{round.bidding!.currentBid > 0 ? round.bidding!.currentBid : '—'}</div>
+            <div class="caption">current bid</div>
+
+            {#if isMyTurn()}
+              {#if round.bidding!.awaiting === 'response'}
+                <p class="prompt">Hold {round.bidding!.currentBid}, or pass?</p>
+                <div class="bigactions">
+                  <button class="primary" onclick={hold}>Hold {round.bidding!.currentBid}</button>
+                  <button onclick={pass}>Pass</button>
+                </div>
+              {:else if round.bidding!.awaiting === 'forehand-decision'}
+                <p class="prompt">Everyone passed — play the hand yourself?</p>
+                <div class="bigactions">
+                  {#each nextBids() as v}<button class="primary" onclick={() => bid(v)}>Play {v}</button>{/each}
+                  <button onclick={pass}>Pass</button>
+                </div>
+              {:else}
+                <p class="prompt">Your call:</p>
+                <div class="bigactions">
+                  {#each nextBids() as v}<button class="primary" onclick={() => bid(v)}>{v}</button>{/each}
+                  <button onclick={pass}>Pass</button>
+                </div>
+              {/if}
+            {:else}
+              <p class="prompt muted">Bidding — {slotName(round.bidding!.askerSlot)} to call…</p>
             {/if}
+            {@render hints()}
+          </div>
+        {:else if round?.phase === 'declaring'}
+          {#if round.declarerSlot === mySlot}
+            <div class="panel declaring">
+              {#if round.declareStep === 'choose'}
+                <h3>You won the bid at {round.bid}</h3>
+                <div class="bigactions">
+                  <button class="primary" onclick={takeSkat}>Pick up Skat</button>
+                  <button onclick={playHand}>Play hand</button>
+                </div>
+                {@render hints()}
+              {:else if round.declareStep === 'discard'}
+                <h3>Pick two cards for the Skat ({selected.length}/2)</h3>
+                <p class="muted">Click cards in your hand below.</p>
+                <button class="primary" onclick={doDiscard} disabled={selected.length !== 2}>Put in Skat</button>
+              {:else if round.declareStep === 'contract'}
+                <h3>Choose your game</h3>
+                <div class="contracts">
+                  <button onclick={() => declare({ type: 'suit', suit: 'C' })} title="Clubs — base 12">♣</button>
+                  <button onclick={() => declare({ type: 'suit', suit: 'S' })} title="Spades — base 11">♠</button>
+                  <button class="red" onclick={() => declare({ type: 'suit', suit: 'H' })} title="Hearts — base 10">♥</button>
+                  <button class="red" onclick={() => declare({ type: 'suit', suit: 'D' })} title="Diamonds — base 9">♦</button>
+                  <button onclick={() => declare({ type: 'grand' })} title="Only Jacks are trumps — base 24">Grand</button>
+                  <button onclick={() => declare({ type: 'null' })} title="Lose every trick — value 23">Null</button>
+                </div>
+                <div class="anns">
+                  {#if round.tookSkat === false}
+                    <label><input type="checkbox" bind:checked={annSchneider} /> Schneider</label>
+                    <label><input type="checkbox" bind:checked={annSchwarz} /> Schwarz</label>
+                  {/if}
+                  <label><input type="checkbox" bind:checked={annOuvert} /> Ouvert</label>
+                </div>
+                {@render hints()}
+              {/if}
+            </div>
+          {:else}
+            <div class="panel"><p class="prompt muted">{slotName(round.declarerSlot ?? 0)} is choosing the game…</p></div>
+          {/if}
+        {:else if round?.phase === 'playing'}
+          <div class="trick">
+            {#each round.trick as t}<div class="played"><CardView card={t.card} width={88} /></div>{/each}
+            {#if round.trick.length === 0}<p class="muted">{slotName(round.turnSlot)} leads…</p>{/if}
           </div>
         {/if}
       </div>
 
-      <!-- My area: hand + contextual controls -->
+      <!-- My hand -->
       <div class="myseat" class:turn={isMyTurn()}>
         <div class="who">
           <strong>{me?.nick} (you)</strong>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
-        </div>
-
-        <div class="controls">
-          {#if round?.phase === 'bidding' && isMyTurn()}
-            {#if round.bidding!.awaiting === 'response'}
-              <span class="prompt">Hold {round.bidding!.currentBid}?</span>
-              <button class="primary" onclick={hold}>Hold {round.bidding!.currentBid}</button>
-              <button onclick={pass}>Pass</button>
-            {:else if round.bidding!.awaiting === 'forehand-decision'}
-              <span class="prompt">Play the hand?</span>
-              {#each nextBids() as v}
-                <button class="primary" onclick={() => bid(v)}>Play {v}</button>
-              {/each}
-              <button onclick={pass}>Pass</button>
-            {:else}
-              <span class="prompt">Your bid:</span>
-              {#each nextBids() as v}
-                <button class="primary" onclick={() => bid(v)}>{v}</button>
-              {/each}
-              <button onclick={pass}>Pass</button>
-            {/if}
-          {:else if round?.phase === 'bidding'}
-            <span class="prompt muted">Bidding… {slotName(round.bidding!.askerSlot)} to call (at {round.bidding!.currentBid})</span>
-          {/if}
-
-          {#if round?.phase === 'declaring' && isMyTurn()}
-            {#if round.declareStep === 'choose'}
-              <span class="prompt">You won the bid at {round.bid}.</span>
-              <button class="primary" onclick={takeSkat}>Pick up Skat</button>
-              <button onclick={playHand}>Play hand</button>
-            {:else if round.declareStep === 'discard'}
-              <span class="prompt">Select two cards to put in the Skat ({selected.length}/2).</span>
-              <button class="primary" onclick={doDiscard} disabled={selected.length !== 2}>Discard</button>
-            {:else if round.declareStep === 'contract'}
-              <span class="prompt">Choose your game:</span>
-              <button onclick={() => declare({ type: 'suit', suit: 'C' })}>♣</button>
-              <button onclick={() => declare({ type: 'suit', suit: 'S' })}>♠</button>
-              <button onclick={() => declare({ type: 'suit', suit: 'H' })}>♥</button>
-              <button onclick={() => declare({ type: 'suit', suit: 'D' })}>♦</button>
-              <button onclick={() => declare({ type: 'grand' })}>Grand</button>
-              <button onclick={() => declare({ type: 'null' })}>Null</button>
-              {#if round.tookSkat === false}
-                <label><input type="checkbox" bind:checked={annSchneider} /> Schneider</label>
-                <label><input type="checkbox" bind:checked={annSchwarz} /> Schwarz</label>
-              {/if}
-              <label><input type="checkbox" bind:checked={annOuvert} /> Ouvert</label>
-            {/if}
-          {:else if round?.phase === 'declaring'}
-            <span class="prompt muted">{slotName(round.declarerSlot ?? 0)} is choosing the game…</span>
-          {/if}
-
           {#if round?.phase === 'playing'}
-            <span class="prompt" class:muted={!isMyTurn()}>
-              {isMyTurn() ? 'Your turn — play a card.' : `${slotName(round.turnSlot)}'s turn…`}
-            </span>
+            <span class="turnhint" class:active={isMyTurn()}>{isMyTurn() ? 'your turn' : `${slotName(round.turnSlot)}'s turn`}</span>
           {/if}
         </div>
-
         <div class="hand">
-          {#each round?.yourHand ?? [] as card (cardId(card))}
+          {#each hand as card (cardId(card))}
             {@const selectable = round?.phase === 'declaring' && round.declareStep === 'discard'}
             {@const playable = round?.phase === 'playing' && isMyTurn() && legalNow(card)}
             <CardView
@@ -248,10 +263,12 @@
       {#if view.status === 'over' && view.match}
         <div class="gameover">
           <h2>Match over — winner: {slotName(view.match.winner ?? 0)}</h2>
-          <p>Scores: {view.players.map((p) => `${p.nick}: ${view.match!.scores[p.slot]}`).join(' · ')}</p>
+          <p>{view.players.map((p) => `${p.nick}: ${view.match!.scores[p.slot]}`).join(' · ')}</p>
           <button class="primary" onclick={leaveTable}>Back to lobby</button>
         </div>
       {/if}
+
+      <Chat messages={view.chat} />
     {/if}
 
     {#if $conn.error}<p class="error">{$conn.error}</p>{/if}
@@ -269,11 +286,20 @@
     box-sizing: border-box;
   }
   .topbar {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
     font-size: 14px;
     color: var(--muted);
+  }
+  .wordmark {
+    font-weight: 800;
+    font-size: 18px;
+    color: #f2f5f3;
+    text-align: center;
+  }
+  .info {
+    text-align: right;
   }
   .ghost {
     background: none;
@@ -281,6 +307,7 @@
     color: var(--muted);
     cursor: pointer;
     font-size: 14px;
+    justify-self: start;
   }
   .opponents {
     display: flex;
@@ -315,6 +342,13 @@
     padding: 1px 8px;
     font-size: 12px;
   }
+  .turnhint {
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .turnhint.active {
+    color: #ffd54a;
+  }
   .backs {
     display: flex;
     margin-top: 6px;
@@ -325,7 +359,81 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 160px;
+    min-height: 200px;
+    padding: 12px 0;
+  }
+  .panel {
+    text-align: center;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 22px 28px;
+    max-width: 520px;
+  }
+  .bignum {
+    font-size: 76px;
+    font-weight: 800;
+    line-height: 1;
+    color: #ffd54a;
+  }
+  .caption {
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+  .prompt {
+    font-size: 17px;
+    margin: 6px 0 12px;
+  }
+  .bigactions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+  .bigactions button {
+    padding: 12px 18px;
+    font-size: 17px;
+    font-weight: 600;
+    min-width: 64px;
+  }
+  .contracts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 8px;
+  }
+  .contracts button {
+    font-size: 22px;
+    padding: 10px 16px;
+    min-width: 60px;
+  }
+  .contracts .red {
+    color: #ff6b6b;
+  }
+  .anns {
+    display: flex;
+    gap: 14px;
+    justify-content: center;
+    margin: 8px 0;
+  }
+  .hints {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    font-size: 13px;
+    color: var(--muted);
+    text-align: left;
+  }
+  .hints ul {
+    margin: 6px 0;
+    padding-left: 18px;
+  }
+  .hline {
+    margin: 3px 0;
   }
   .trick {
     display: flex;
@@ -333,17 +441,6 @@
   }
   .myseat {
     margin-top: auto;
-  }
-  .controls {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    margin: 10px 0;
-    min-height: 38px;
-  }
-  .prompt {
-    font-size: 14px;
   }
   .hand {
     display: flex;
@@ -382,6 +479,9 @@
   .gameover,
   .result {
     text-align: center;
+  }
+  .waiting {
+    margin-top: 8vh;
   }
   .link {
     display: flex;

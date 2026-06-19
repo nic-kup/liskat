@@ -108,6 +108,10 @@ export function listTables(): void {
   send({ t: 'listTables' });
 }
 
+export function sendChat(text: string): void {
+  send({ t: 'chat', text });
+}
+
 // ---- round actions ---------------------------------------------------------
 
 export function bid(value: number): void {

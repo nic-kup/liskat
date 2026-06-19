@@ -4,35 +4,36 @@
 
   let nick = $state(localStorage.getItem('liskat.nick') ?? '');
   let joinId = $state('');
-  let formatKey = $state('deals12');
 
-  const FORMATS: Record<string, { label: string; format: MatchFormat }> = {
-    deals6: { label: '6 deals (quick)', format: { kind: 'deals', deals: 6 } },
-    deals12: { label: '12 deals', format: { kind: 'deals', deals: 12 } },
-    deals36: { label: '36 deals (long)', format: { kind: 'deals', deals: 36 } },
-    race250: { label: 'Race to 250', format: { kind: 'race', target: 250 } },
-    race1000: { label: 'Race to 1000', format: { kind: 'race', target: 1000 } },
-  };
+  const QUICK: { label: string; sub: string; format: MatchFormat }[] = [
+    { label: '6 deals', sub: 'quick', format: { kind: 'deals', deals: 6 } },
+    { label: '12 deals', sub: 'standard', format: { kind: 'deals', deals: 12 } },
+    { label: '36 deals', sub: 'long', format: { kind: 'deals', deals: 36 } },
+    { label: 'Race 250', sub: 'first to 250', format: { kind: 'race', target: 250 } },
+    { label: 'Race 1000', sub: 'first to 1000', format: { kind: 'race', target: 1000 } },
+  ];
 
-  function ensureNick(): boolean {
-    const n = nick.trim();
-    if (!n) return false;
+  // Settles on a nickname, defaulting to "Anonymous" if left blank.
+  function ensureNick(): void {
+    const n = nick.trim() || 'Anonymous';
+    nick = n;
     localStorage.setItem('liskat.nick', n);
     setNick(n);
-    return true;
   }
 
-  const fmt = $derived(FORMATS[formatKey].format);
-
-  function onQuick() {
-    if (ensureNick()) quickMatch(fmt);
+  function onQuick(format: MatchFormat) {
+    ensureNick();
+    quickMatch(format);
   }
-  function onCreate(visibility: 'private' | 'public') {
-    if (ensureNick()) createTable(visibility, fmt);
+  function onCreatePrivate() {
+    ensureNick();
+    createTable('private', QUICK[1].format);
   }
   function onJoin() {
-    const id = joinId.trim().replace(/.*\//, ''); // accept a full link or bare id
-    if (id && ensureNick()) joinTable(id);
+    const id = joinId.trim().replace(/.*\//, '').replace(/\?table=/, '');
+    if (!id) return;
+    ensureNick();
+    joinTable(id);
   }
 
   function fmtLabel(f: MatchFormat): string {
@@ -42,36 +43,34 @@
   listTables();
 </script>
 
+<div class="brand">liskat</div>
+
 <div class="lobby">
-  <header>
-    <h1>Liskat</h1>
-    <p class="tag">Play Skat online — free, no ads, no bots.</p>
-  </header>
-
-  <label class="field">
-    <span>Your nickname</span>
-    <input bind:value={nick} maxlength="24" placeholder="e.g. Skatmeister" />
-  </label>
-
-  <label class="field">
-    <span>Game format</span>
-    <select bind:value={formatKey}>
-      {#each Object.entries(FORMATS) as [key, f]}
-        <option value={key}>{f.label}</option>
+  <section class="quick">
+    <h2>Quick match</h2>
+    <p class="hint">One click — you're in a table, waiting for two more players.</p>
+    <div class="grid">
+      {#each QUICK as q}
+        <button class="qbtn" onclick={() => onQuick(q.format)}>
+          <span class="big">{q.label}</span>
+          <span class="sub">{q.sub}</span>
+        </button>
       {/each}
-    </select>
-  </label>
+    </div>
+  </section>
 
-  <div class="actions">
-    <button class="primary" onclick={onQuick} disabled={!nick.trim()}>Quick match</button>
-    <button onclick={() => onCreate('private')} disabled={!nick.trim()}>Create private table</button>
-    <button onclick={() => onCreate('public')} disabled={!nick.trim()}>Create public table</button>
-  </div>
+  <section class="row">
+    <label class="field">
+      <span>Nickname</span>
+      <input bind:value={nick} maxlength="24" placeholder="Anonymous" />
+    </label>
+    <button class="secondary" onclick={onCreatePrivate}>Create private table</button>
+  </section>
 
-  <div class="join">
-    <input bind:value={joinId} placeholder="Paste a table link or id" />
-    <button onclick={onJoin} disabled={!nick.trim() || !joinId.trim()}>Join</button>
-  </div>
+  <section class="join">
+    <input bind:value={joinId} placeholder="Paste a table link or id to join friends" />
+    <button onclick={onJoin} disabled={!joinId.trim()}>Join</button>
+  </section>
 
   {#if $conn.error}
     <p class="error">{$conn.error}</p>
@@ -80,45 +79,90 @@
   <section class="public">
     <h2>Open public tables</h2>
     {#if $conn.tables.length === 0}
-      <p class="muted">No open tables right now — start one above.</p>
+      <p class="muted">None open — quick-match above to start one.</p>
     {:else}
       <ul>
         {#each $conn.tables as t}
           <li>
-            <span><strong>{t.hostNick}</strong> · {fmtLabel(t.format)} · {t.seated}/3 seated</span>
-            <button onclick={() => ensureNick() && joinTable(t.id)} disabled={!nick.trim()}>Join</button>
+            <span><strong>{t.hostNick}</strong> · {fmtLabel(t.format)} · {t.seated}/3</span>
+            <button onclick={() => { ensureNick(); joinTable(t.id); }}>Join</button>
           </li>
         {/each}
       </ul>
     {/if}
   </section>
 
-  <footer>
-    <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
-  </footer>
+  <footer><span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span></footer>
 </div>
 
 <style>
-  .lobby {
-    max-width: 460px;
-    margin: 6vh auto;
-    padding: 28px;
-    background: rgba(0, 0, 0, 0.25);
-    border-radius: 16px;
-    backdrop-filter: blur(4px);
+  .brand {
+    position: fixed;
+    top: 16px;
+    left: 20px;
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #f2f5f3;
   }
-  header h1 {
-    margin: 0;
-    font-size: 44px;
+  .lobby {
+    max-width: 560px;
+    margin: 12vh auto 0;
+    padding: 24px;
+  }
+  h2 {
+    font-size: 16px;
+    margin: 0 0 4px;
+    color: var(--muted);
+    text-transform: uppercase;
     letter-spacing: 1px;
   }
-  .tag {
-    margin: 4px 0 22px;
+  .hint {
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 10px;
+  }
+  .qbtn {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    cursor: pointer;
+    transition: background 0.12s, transform 0.12s;
+  }
+  .qbtn:hover {
+    background: var(--accent);
+    transform: translateY(-2px);
+  }
+  .qbtn .big {
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .qbtn .sub {
+    font-size: 12px;
     color: var(--muted);
   }
+  .qbtn:hover .sub {
+    color: #e8f5ee;
+  }
+  .row {
+    display: flex;
+    gap: 10px;
+    align-items: flex-end;
+    margin-top: 26px;
+  }
   .field {
-    display: block;
-    margin-bottom: 14px;
+    flex: 1;
   }
   .field span {
     display: block;
@@ -126,8 +170,7 @@
     color: var(--muted);
     margin-bottom: 4px;
   }
-  input,
-  select {
+  input {
     width: 100%;
     padding: 10px 12px;
     border-radius: 8px;
@@ -137,14 +180,10 @@
     font-size: 15px;
     box-sizing: border-box;
   }
-  .actions {
-    display: grid;
-    gap: 8px;
-    margin: 18px 0;
-  }
   .join {
     display: flex;
-    gap: 8px;
+    gap: 10px;
+    margin-top: 12px;
   }
   .join input {
     flex: 1;
@@ -165,17 +204,11 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .primary {
-    background: var(--accent);
-    border-color: var(--accent);
-    font-weight: 600;
+  .secondary {
+    white-space: nowrap;
   }
   .public {
-    margin-top: 22px;
-  }
-  .public h2 {
-    font-size: 15px;
-    color: var(--muted);
+    margin-top: 26px;
   }
   .public ul {
     list-style: none;
@@ -197,7 +230,7 @@
     color: #ff8a80;
   }
   footer {
-    margin-top: 18px;
+    margin-top: 20px;
     font-size: 12px;
     color: var(--muted);
   }

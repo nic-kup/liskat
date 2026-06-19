@@ -9,3 +9,4 @@ coverage/
 
 # local dev helpers / preview
 .join-bots.mjs
+.qm-bots.mjs
