@@ -53,8 +53,14 @@
     box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
   }
   .selected {
-    transform: translateY(-14px);
-    box-shadow: 0 0 0 3px #ffd54a, 0 8px 16px rgba(0, 0, 0, 0.45);
+    transform: translateY(-16px);
+    outline: 3px solid #ffd54a;
+    outline-offset: 2px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.45);
+  }
+  /* keep a hovered-selected card lifted and ringed */
+  .clickable.selected:hover {
+    transform: translateY(-18px);
   }
   .dim {
     opacity: 0.45;

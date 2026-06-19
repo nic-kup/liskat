@@ -27,19 +27,12 @@ function cardSvg(suit, rank) {
   const color = COLOR[suit];
   const g = GLYPH[suit];
   // French-suited deck uses J/Q/K/A. (A German-suited deck would use B/D/K/A.)
-  const centerLabel = rank;
-  const isCourt = rank === 'J' || rank === 'Q' || rank === 'K';
+  // A single centered rank + suit symbol — no corner indices.
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" font-family="${FONT}">
   <rect x="4" y="4" width="242" height="342" rx="20" ry="20" fill="#fffdf7" stroke="#d8d2c4" stroke-width="2"/>
   <g fill="${color}" text-anchor="middle">
-    <text x="34" y="46" font-size="40" font-weight="700">${rank}</text>
-    <text x="34" y="84" font-size="34">${g}</text>
-    <g transform="rotate(180 216 312)">
-      <text x="216" y="290" font-size="40" font-weight="700">${rank}</text>
-      <text x="216" y="328" font-size="34">${g}</text>
-    </g>
-    <text x="125" y="${isCourt ? 178 : 205}" font-size="${isCourt ? 96 : 150}" font-weight="700">${centerLabel}</text>
-    ${isCourt ? `<text x="125" y="270" font-size="86">${g}</text>` : ''}
+    <text x="125" y="170" font-size="116" font-weight="700">${rank}</text>
+    <text x="125" y="292" font-size="104">${g}</text>
   </g>
 </svg>`;
 }

@@ -108,6 +108,7 @@
       <div class="info">
         {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
         · deal {view.dealIndex + 1}
+        {#if round && view.status !== 'waiting'}· <strong class="bidtag">bid {round.phase === 'bidding' ? round.bidding!.currentBid || '—' : round.bid}</strong>{/if}
         {#if round?.contract}· <strong>{contractLabel(round.contract)}</strong>{/if}
       </div>
     </div>
@@ -282,8 +283,11 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
-    padding: 12px;
+    padding: 12px 12px 6px;
     box-sizing: border-box;
+  }
+  .bidtag {
+    color: #ffd54a;
   }
   .topbar {
     display: grid;
@@ -441,12 +445,14 @@
   }
   .myseat {
     margin-top: auto;
+    padding: 0 12px;
   }
   .hand {
     display: flex;
     justify-content: center;
+    align-items: flex-end;
     gap: 4px;
-    padding-top: 6px;
+    padding: 0;
   }
   button {
     padding: 8px 12px;

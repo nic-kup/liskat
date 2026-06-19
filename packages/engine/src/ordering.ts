@@ -77,26 +77,32 @@ export function trumpsHighToLow(contract: Contract): Card[] {
   return [...jacks, ...nonJack];
 }
 
-const SIDE_DESC: Rank[] = ['A', '10', 'K', 'Q', '9', '8', '7']; // no Jack — Jacks are trumps
-const NULL_DESC: Rank[] = ['A', 'K', 'Q', 'J', '10', '9', '8', '7'];
-const SUIT_DISPLAY_ORDER: Suit[] = ['C', 'S', 'H', 'D'];
+// Left-to-right suit grouping for display, and ascending ("lo to hi") rank
+// orders within a suit.
+const SUIT_DISPLAY_ORDER: Suit[] = ['D', 'H', 'S', 'C'];
+const LO_HI_SIDE: Rank[] = ['7', '8', '9', 'Q', 'K', '10', 'A']; // suit/grand, excludes Jack (Jacks are trumps)
+const LO_HI_NULL: Rank[] = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A']; // null: no trumps, Jack sits in its suit
+const JACKS_LO_HI: Suit[] = ['D', 'H', 'S', 'C'];
 
-// The full deck laid out left-to-right the way a player would hold it: trumps
-// (Jacks first, then the trump suit) descending, then the side suits grouped
-// and descending. With no contract yet (bidding/declaring) we default to a
-// grand-style layout so the four Jacks sit together on the left.
+// The full deck laid out left-to-right the way a player holds it:
+//  - Null: suits D→H→S→C, each low to high (Jacks live within their suit).
+//  - Suit/Grand: the side suits D→H→S→C low to high, then (in a suit game)
+//    the trump suit on the right, and finally the four Jacks at the far right.
+// With no contract yet (bidding/declaring) we use a grand-style layout.
 function displayList(contract: Contract): Card[] {
   if (contract.type === 'null') {
     const out: Card[] = [];
-    for (const suit of SUIT_DISPLAY_ORDER) for (const rank of NULL_DESC) out.push({ suit, rank });
+    for (const suit of SUIT_DISPLAY_ORDER) for (const rank of LO_HI_NULL) out.push({ suit, rank });
     return out;
   }
   const trumpSuit = contract.type === 'suit' ? contract.suit : null;
-  const out: Card[] = [...trumpsHighToLow(contract)];
+  const out: Card[] = [];
   for (const suit of SUIT_DISPLAY_ORDER) {
-    if (suit === trumpSuit) continue; // its cards are already among the trumps
-    for (const rank of SIDE_DESC) out.push({ suit, rank });
+    if (suit === trumpSuit) continue; // the trump suit goes on the right, before the Jacks
+    for (const rank of LO_HI_SIDE) out.push({ suit, rank });
   }
+  if (trumpSuit) for (const rank of LO_HI_SIDE) out.push({ suit: trumpSuit, rank });
+  for (const suit of JACKS_LO_HI) out.push({ suit, rank: 'J' });
   return out;
 }
 
