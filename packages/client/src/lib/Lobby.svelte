@@ -92,7 +92,10 @@
     {/if}
   </section>
 
-  <footer><span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span></footer>
+  <footer>
+    <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
+    <span class="feedback">Feedback at <a href="mailto:feedback@liskat.com">feedback@liskat.com</a></span>
+  </footer>
 </div>
 
 <style>
@@ -233,8 +236,14 @@
     margin-top: 20px;
     font-size: 12px;
     color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
   }
   footer .on {
     color: #7fe3a3;
+  }
+  footer .feedback a {
+    color: var(--muted);
   }
 </style>
