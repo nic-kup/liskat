@@ -379,6 +379,9 @@ function collectTrick(s: RoundState): RoundState {
   s.turn = winnerSeat;
   s.trickCount += 1;
 
+  // In a Null game the declarer must lose every trick — taking one ends the
+  // game immediately as a loss.
+  if (s.contract?.type === 'null' && winnerSeat === s.declarer) return finishRound(s);
   if (s.trickCount === 10) return finishRound(s);
   return s;
 }

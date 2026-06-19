@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRound, applyAction, legalCards, type RoundState } from '../src/round.ts';
 import { deal } from '../src/deal.ts';
-import { totalPoints, cardPoints } from '../src/cards.ts';
+import { totalPoints, cardPoints, cardFromId } from '../src/cards.ts';
 
 // A tiny deterministic RNG (mulberry32) so deals are reproducible in tests.
 function rng(seed: number): () => number {
@@ -92,6 +92,36 @@ test('full round plays out to a scored result with points conserved', () => {
   const declarerCardPoints = totalPoints(s.declarerTrickPoints) + skatPts;
   const defenderCardPoints = totalPoints(s.defenderTrickPoints);
   assert.equal(declarerCardPoints + defenderCardPoints, 120);
+});
+
+test('null ends immediately when the declarer wins a trick', () => {
+  // Hand-crafted deal: forehand (seat 0) holds the ace of spades and leads it;
+  // the other two each hold exactly one (lower) spade, so they must follow and
+  // forehand wins trick one — which loses a Null game right away.
+  const id = (s: string) => cardFromId(s);
+  const deal = {
+    hands: [
+      ['SA', 'S7', 'S8', 'S9', 'S10', 'SJ', 'C7', 'C8', 'C9', 'C10'].map(id),
+      ['SK', 'CJ', 'CQ', 'CK', 'CA', 'H7', 'H8', 'H9', 'H10', 'HJ'].map(id),
+      ['SQ', 'HQ', 'HK', 'HA', 'D7', 'D8', 'D9', 'D10', 'DJ', 'DQ'].map(id),
+    ] as [any, any, any],
+    skat: ['DK', 'DA'].map(id) as [any, any],
+  };
+  let s = createRound(deal);
+  s = applyAction(s, { type: 'pass', seat: 1 });
+  s = applyAction(s, { type: 'pass', seat: 2 });
+  s = applyAction(s, { type: 'bid', seat: 0, value: 18 });
+  s = applyAction(s, { type: 'playHand', seat: 0 });
+  s = applyAction(s, { type: 'declareContract', seat: 0, contract: { type: 'null' } });
+
+  s = applyAction(s, { type: 'playCard', seat: 0, card: id('SA') });
+  s = applyAction(s, { type: 'playCard', seat: 1, card: id('SK') });
+  s = applyAction(s, { type: 'playCard', seat: 2, card: id('SQ') });
+  s = applyAction(s, { type: 'collect' });
+
+  assert.equal(s.phase, 'finished');
+  assert.equal(s.trickCount, 1); // ended after one trick, not all ten
+  assert.equal(s.result?.won, false);
 });
 
 test('following suit is enforced', () => {

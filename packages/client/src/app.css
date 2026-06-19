@@ -27,12 +27,11 @@ button {
   font-family: inherit;
 }
 
-/* On narrow windows the fixed side overlays would cover the table, so hide
-   them (chat, history, last-trick). */
+/* On narrow windows the chat and history overlays would cover the table, so
+   hide them. The last-trick panel always stays visible. */
 @media (max-width: 980px) {
   .chat,
-  .history,
-  .lasttrick {
+  .history {
     display: none !important;
   }
 }

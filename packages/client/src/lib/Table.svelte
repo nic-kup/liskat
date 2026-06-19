@@ -273,7 +273,13 @@
           {/if}
         {:else if round?.phase === 'playing'}
           <div class="trick">
-            {#each round.trick as t}<div class="played"><CardView card={t.card} width={88} /></div>{/each}
+            {#each round.trick as t}
+              {@const id = identityForSlot(t.slot)}
+              <div class="played">
+                <span class="marker" style="color:{id.color}">{id.marker}</span>
+                <CardView card={t.card} width={88} />
+              </div>
+            {/each}
             {#if round.trick.length === 0}<p class="muted">{slotName(round.turnSlot)} leads…</p>{/if}
           </div>
         {/if}
@@ -318,10 +324,17 @@
         <div class="lasttrick">
           <div class="lt-label">last trick</div>
           <div class="lt-cards">
-            {#each round.lastTrick as t}<CardView card={t.card} width={46} />{/each}
+            {#each round.lastTrick as t}
+              {@const id = identityForSlot(t.slot)}
+              <div class="lt-card">
+                <span class="marker" style="color:{id.color}">{id.marker}</span>
+                <CardView card={t.card} width={46} />
+              </div>
+            {/each}
           </div>
           {#if round.lastTrickWinnerSlot !== null}
-            <div class="lt-won">won by {slotName(round.lastTrickWinnerSlot)}</div>
+            {@const wid = identityForSlot(round.lastTrickWinnerSlot)}
+            <div class="lt-won">won by <span class="marker" style="color:{wid.color}">{wid.marker}</span> {slotName(round.lastTrickWinnerSlot)}</div>
           {/if}
         </div>
       {/if}
@@ -432,21 +445,21 @@
     border-radius: 12px;
     padding: 3px 12px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-    animation: bidbubble 2s ease forwards;
+    animation: bidbubble 3s ease forwards;
   }
   @keyframes bidbubble {
     0% {
       opacity: 0;
     }
-    12% {
+    4% {
       opacity: 1;
     }
-    50% {
+    66.6% {
       opacity: 1;
-    } /* held ~1s */
+    } /* solid for ~2s */
     100% {
       opacity: 0;
-    } /* faded over ~1s */
+    } /* fade over the last ~1s */
   }
   .turnhint {
     color: var(--muted);
@@ -586,15 +599,38 @@
   }
   .lt-cards {
     display: flex;
-    gap: 3px;
+    gap: 6px;
     margin: 6px 0;
+  }
+  .lt-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  .lt-card .marker {
+    font-size: 12px;
+    line-height: 1;
+  }
+  .lt-won .marker {
+    font-size: 12px;
   }
   .hline {
     margin: 3px 0;
   }
   .trick {
     display: flex;
-    gap: 10px;
+    gap: 14px;
+  }
+  .played {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+  }
+  .played .marker {
+    font-size: 18px;
+    line-height: 1;
   }
   .myseat {
     margin-top: auto;
