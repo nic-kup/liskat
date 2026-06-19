@@ -27,6 +27,7 @@ const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table be
 // grows by BANK_PER_DEAL_MS at the start of each new deal. Run the clock to
 // zero and a random legal move is played for you.
 const TURN_BASE_MS = 10_000;
+const FIRST_BID_MS = 20_000; // the opening bid gets extra time to size up the hand
 const BANK_START_MS = 30_000;
 const BANK_PER_DEAL_MS = 10_000;
 
@@ -71,6 +72,7 @@ export class Table {
   private turnTimer: ReturnType<typeof setTimeout> | null = null;
   private turnStart = 0;
   private timedSlot = -1;
+  private turnAllowance = TURN_BASE_MS; // base time for the clock currently running
 
   // Injected so the server can re-send views whenever something changes.
   onChange: () => void = () => {};
@@ -184,6 +186,13 @@ export class Table {
     }
   }
 
+  // Base time for the current decision: the opening bid of a deal gets extra.
+  private baseAllowance(): number {
+    const r = this.round;
+    if (r && r.phase === 'bidding' && r.bidding.lastActions.every((a) => a === null)) return FIRST_BID_MS;
+    return TURN_BASE_MS;
+  }
+
   // Starts the clock for whoever is on turn now.
   private armTimer(): void {
     this.clearTurnTimer();
@@ -193,7 +202,8 @@ export class Table {
       this.turnStart = 0;
       return;
     }
-    const ms = TURN_BASE_MS + Math.max(0, this.timeBank[slot]);
+    this.turnAllowance = this.baseAllowance();
+    const ms = this.turnAllowance + Math.max(0, this.timeBank[slot]);
     this.turnStart = Date.now();
     this.turnTimer = setTimeout(() => this.onTimeout(slot), ms);
     // Don't let a pending clock keep the process (or a test runner) alive.
@@ -204,14 +214,14 @@ export class Table {
   private turnRemainingMs(): number | null {
     const slot = this.activeSlot();
     if (slot < 0 || this.turnStart === 0) return null;
-    const allowance = TURN_BASE_MS + Math.max(0, this.timeBank[slot]);
+    const allowance = this.turnAllowance + Math.max(0, this.timeBank[slot]);
     return Math.max(0, allowance - (Date.now() - this.turnStart));
   }
 
   // Charges any time spent beyond the base allowance to the active player's bank.
   private charge(): void {
     if (this.timedSlot < 0 || this.turnStart === 0) return;
-    const over = Date.now() - this.turnStart - TURN_BASE_MS;
+    const over = Date.now() - this.turnStart - this.turnAllowance;
     if (over > 0) this.timeBank[this.timedSlot] = Math.max(0, this.timeBank[this.timedSlot] - over);
     this.turnStart = 0;
   }
