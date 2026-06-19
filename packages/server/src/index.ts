@@ -90,6 +90,7 @@ const ratedTables = new Set<string>();
 function maybeRecordMatch(table: Table): void {
   if (table.status !== 'over' || !table.match?.finished || ratedTables.has(table.id)) return;
   ratedTables.add(table.id); // mark first so we never double-record
+  if (!table.rated) return; // private games never count toward Elo
   const type = ratedType(table.format);
   if (!type) return;
   const seats = table.seats;
@@ -219,6 +220,7 @@ matchmaker.onMatch = (format, ids) => {
     return;
   }
   const table = lobby.create('private', format);
+  table.rated = true; // matchmade games count toward Elo
   bindTable(table);
   for (const c of cs) {
     c.tableId = table.id;
@@ -254,6 +256,8 @@ function handle(client: Client, msg: ClientMessage): void {
       }
       if (client.tableId) leaveTable(client);
       const table = lobby.create(msg.visibility, msg.format);
+      table.timed = msg.timed !== false; // private games may turn the clock off
+      // table.rated stays false — private games never count toward Elo.
       bindTable(table);
       joinTable(client, table);
       return;

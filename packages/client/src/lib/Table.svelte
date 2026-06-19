@@ -29,6 +29,7 @@
   });
   const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
   const myIdentity = $derived(identityForSlot(mySlot));
+  const timed = $derived(view?.timed ?? true);
   // The dealer is rearhand (role 2); a chip marks their seat.
   const dealerSlot = $derived(view?.players.find((p) => p.role === 2)?.slot ?? -1);
 
@@ -221,7 +222,7 @@
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
-              {#if clockSlot === p.slot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}
+              {#if timed}{#if clockSlot === p.slot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}{/if}
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
             <div class="backs">
@@ -353,7 +354,7 @@
         <div class="who">
           {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
-          {#if clockSlot === mySlot && clockDisplay}<span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock big bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{:else}<strong>{me?.nick}</strong>{/if}
+          {#if timed && clockSlot === mySlot && clockDisplay}<span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if timed && round}<span class="clock big bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{:else}<strong>{me?.nick}</strong>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing' && isMyTurn()}
             <span class="turnhint active">your turn</span>

@@ -9,7 +9,7 @@ export type ClientMessage =
   | { t: 'hello'; nick: string }
   | { t: 'resume'; playerId: string | null }
   | { t: 'auth'; token: string }
-  | { t: 'createTable'; visibility: 'private' | 'public'; format: MatchFormat }
+  | { t: 'createTable'; visibility: 'private' | 'public'; format: MatchFormat; timed?: boolean }
   | { t: 'joinTable'; tableId: string }
   | { t: 'quickMatch'; format?: MatchFormat }
   | { t: 'cancelMatch' }

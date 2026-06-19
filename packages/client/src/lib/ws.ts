@@ -248,8 +248,8 @@ export function cancelMatch(): void {
   send({ t: 'cancelMatch' });
 }
 
-export function createTable(visibility: 'private' | 'public', format: MatchFormat): void {
-  send({ t: 'createTable', visibility, format });
+export function createTable(visibility: 'private' | 'public', format: MatchFormat, timed = true): void {
+  send({ t: 'createTable', visibility, format, timed });
 }
 
 export function joinTable(tableId: string): void {

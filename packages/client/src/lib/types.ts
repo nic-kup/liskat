@@ -61,6 +61,8 @@ export interface TableView {
   visibility: 'private' | 'public';
   format: MatchFormat;
   status: 'waiting' | 'playing' | 'between' | 'over';
+  timed: boolean;
+  rated: boolean;
   dealIndex: number;
   youSlot: number | null;
   players: PlayerView[];

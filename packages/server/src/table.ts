@@ -65,6 +65,11 @@ export class Table {
   chat: { nick: string; slot: number; text: string }[] = [];
   history: HistoryEntry[] = [];
 
+  // Whether this match counts toward Elo (only matchmade games) and whether the
+  // move clock runs (off can be chosen for private games).
+  rated = false;
+  timed = true;
+
   // Move clock, per slot. timeBank is remaining reserve (ms); turnTimer fires
   // when the active player runs out; timedSlot/turnStart track the clock that
   // is currently running so overtime can be charged to the right player.
@@ -196,6 +201,11 @@ export class Table {
   // Starts the clock for whoever is on turn now.
   private armTimer(): void {
     this.clearTurnTimer();
+    if (!this.timed) {
+      this.timedSlot = -1;
+      this.turnStart = 0;
+      return;
+    }
     const slot = this.activeSlot();
     this.timedSlot = slot;
     if (slot < 0) {
@@ -387,6 +397,8 @@ export class Table {
       visibility: this.visibility,
       format: this.format,
       status: this.status,
+      timed: this.timed,
+      rated: this.rated,
       dealIndex: this.dealIndex,
       youSlot: youSlot >= 0 ? youSlot : null,
       players,
@@ -416,6 +428,8 @@ export interface TableView {
   visibility: 'private' | 'public';
   format: MatchFormat;
   status: TableStatus;
+  timed: boolean;
+  rated: boolean;
   dealIndex: number;
   youSlot: number | null;
   players: { slot: number; role: Seat; nick: string | null; occupied: boolean; you: boolean }[];

@@ -19,6 +19,7 @@
   let joinId = $state('');
   let showCreate = $state(false);
   let createMsg = $state('');
+  let createTimed = $state(true);
 
   const QUICK: { label: string; sub: string; format: MatchFormat }[] = [
     { label: '6 deals', sub: 'quick', format: { kind: 'deals', deals: 6 } },
@@ -46,7 +47,7 @@
   }
   function chooseCreate(format: MatchFormat) {
     ensureNick();
-    createTable('private', format);
+    createTable('private', format, createTimed);
     showCreate = false;
   }
   function onJoin() {
@@ -113,6 +114,7 @@
   <div class="overlay" role="presentation" onclick={() => (showCreate = false)}>
     <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
       <h2>Private table — choose a game type</h2>
+      <label class="opt"><input type="checkbox" bind:checked={createTimed} /> Time control (10s per move + time bank)</label>
       <div class="grid">
         {#each QUICK as q}
           <button class="qbtn" onclick={() => chooseCreate(q.format)}>
@@ -121,6 +123,7 @@
           </button>
         {/each}
       </div>
+      <p class="note">Private games don't count toward ratings.</p>
       <button class="cancel" onclick={() => (showCreate = false)}>Cancel</button>
     </div>
   </div>
@@ -278,6 +281,19 @@
   }
   .cancel {
     margin-top: 14px;
+  }
+  .opt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+  .note {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 12px 0 0;
   }
   .searching {
     text-align: center;
