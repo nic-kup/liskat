@@ -104,18 +104,19 @@
   .overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.55);
+    background: rgba(0, 0, 0, 0.6);
     display: flex;
     align-items: center;
     justify-content: center;
     z-index: 60;
   }
   .modal {
-    background: #0c3b25;
-    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: #18382a;
+    border: 1px solid rgba(255, 255, 255, 0.18);
     border-radius: 16px;
     padding: 22px;
     width: min(380px, 92vw);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
   }
   .tabs {
     display: flex;
