@@ -50,7 +50,7 @@ export interface RoundView {
   yourHand: Card[];
   legal: Card[];
   passedIn: boolean;
-  result: { won: boolean; value: number; multiplier: number; schneider: boolean; schwarz: boolean } | null;
+  result: { won: boolean; value: number; multiplier: number; schneider: boolean; schwarz: boolean; cardPoints?: number } | null;
   skat: [Card, Card] | null;
   banks: number[];
   turnRemainingMs: number | null;

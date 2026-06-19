@@ -247,7 +247,7 @@
               <h3 class:won={round.result.won} class:lost={!round.result.won}>
                 <span class="marker" style="color:{did.color}">{did.marker}</span>
                 {slotName(round.declarerSlot ?? 0)} {round.result.won ? 'won' : 'lost'}
-                {contractLabel(round.contract)} for {round.result.value}
+                {contractLabel(round.contract)} for {round.result.value}{#if round.contract?.type !== 'null' && round.result.cardPoints != null} with {round.result.cardPoints} eyes{/if}
                 {round.result.schneider ? '· Schneider' : ''}{round.result.schwarz ? '· Schwarz' : ''}
               </h3>
             {/if}
@@ -344,9 +344,8 @@
       <div class="myseat" class:turn={isMyTurn()}>
         <div class="who">
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
-          <strong>{me?.nick}</strong>
+          {#if clockSlot === mySlot && clockDisplay}<span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock big bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{:else}<strong>{me?.nick}</strong>{/if}
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
-          {#if clockSlot === mySlot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{/if}
           {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing' && isMyTurn()}
@@ -470,6 +469,10 @@
     background: none;
     color: #ff5252;
     font-weight: 700;
+  }
+  .clock.big {
+    font-size: 24px;
+    padding: 2px 12px;
   }
   .dealer-chip {
     background: #fff;

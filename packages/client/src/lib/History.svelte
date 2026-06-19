@@ -8,6 +8,7 @@
   }
   let { history, players }: Props = $props();
   let open = $state(false);
+  const mySlot = $derived(players.find((p) => p.you)?.slot ?? -1);
 </script>
 
 <div class="history">
@@ -20,7 +21,7 @@
             <th>#</th>
             {#each players as p}
               {@const id = identityForSlot(p.slot)}
-              <th><span class="marker" style="color:{id.color}">{id.marker}</span></th>
+              <th class:mine={p.slot === mySlot}><span class="marker" style="color:{id.color}">{id.marker}</span></th>
             {/each}
           </tr>
         </thead>
@@ -29,7 +30,7 @@
             <tr>
               <td class="deal">{h.deal}</td>
               {#each [0, 1, 2] as slot}
-                <td class:declarer={h.declarerSlot === slot}>
+                <td class:declarer={h.declarerSlot === slot} class:mine={slot === mySlot}>
                   {h.scores[slot]}
                   {#if h.declarerSlot === slot}<span class="tag" class:won={h.won} class:lost={!h.won}>{h.short}{h.won ? '✓' : '✗'}</span>{/if}
                 </td>
@@ -109,6 +110,10 @@
   }
   .marker {
     font-size: 13px;
+  }
+  th.mine,
+  td.mine {
+    background: rgba(255, 255, 255, 0.1);
   }
   .empty {
     text-align: center;

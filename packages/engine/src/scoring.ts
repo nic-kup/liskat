@@ -59,6 +59,7 @@ export interface GameValueResult {
   multiplier: number; // suit/grand only, for display
   schneider: boolean; // declarer made 90+ (or held opponents to <31)
   schwarz: boolean; // opponents took no trick
+  cardPoints?: number; // declarer's eyes (suit/grand only; meaningless for null)
 }
 
 // Computes whether the declarer won and the game value, given the contract,
@@ -97,7 +98,7 @@ export function computeGameValue(
   if (announcements.schneiderAnnounced && !schneider) won = false;
   if (announcements.schwarzAnnounced && !schwarz) won = false;
 
-  return { won, value, multiplier, schneider, schwarz };
+  return { won, value, multiplier, schneider, schwarz, cardPoints: points };
 }
 
 function computeNull(
