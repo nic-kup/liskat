@@ -9,15 +9,39 @@ export interface ConnState {
   connected: boolean;
   playerId: string | null;
   nick: string;
+  account: string | null; // logged-in username, or null when anonymous
   tables: LobbyEntry[];
   view: TableView | null;
   error: string | null;
+}
+
+// Persisted so a page reload can reconnect to the same seat instead of being
+// dropped from the game.
+const PID_KEY = 'liskat.pid';
+const SESSION_KEY = 'liskat.session'; // session token for a logged-in account
+const ACCOUNT_KEY = 'liskat.account'; // remembered username, for instant UI on load
+
+function ls(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function setLs(key: string, value: string | null): void {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    /* storage unavailable (private mode) */
+  }
 }
 
 export const conn = writable<ConnState>({
   connected: false,
   playerId: null,
   nick: '',
+  account: ls(ACCOUNT_KEY),
   tables: [],
   view: null,
   error: null,
@@ -25,17 +49,6 @@ export const conn = writable<ConnState>({
 
 let socket: WebSocket | null = null;
 let queue: string[] = [];
-
-// Persisted so a page reload can reconnect to the same seat instead of being
-// dropped from the game.
-const PID_KEY = 'liskat.pid';
-function storedPid(): string | null {
-  try {
-    return localStorage.getItem(PID_KEY);
-  } catch {
-    return null;
-  }
-}
 
 function wsUrl(): string {
   const env = import.meta.env.VITE_WS_URL as string | undefined;
@@ -51,9 +64,12 @@ export function connect(): void {
 
   ws.onopen = () => {
     conn.update((s) => ({ ...s, connected: true }));
-    // Try to reclaim our previous identity before doing anything else.
-    const pid = storedPid();
-    if (pid) ws.send(JSON.stringify({ t: 'resume', playerId: pid }));
+    // Re-establish identity before anything else: a logged-in session takes
+    // precedence; otherwise reclaim the anonymous seat we last held.
+    const token = ls(SESSION_KEY);
+    const pid = ls(PID_KEY);
+    if (token) ws.send(JSON.stringify({ t: 'auth', token }));
+    else if (pid) ws.send(JSON.stringify({ t: 'resume', playerId: pid }));
     for (const m of queue) ws.send(m);
     queue = [];
   };
@@ -75,11 +91,7 @@ export function connect(): void {
     conn.update((s) => {
       switch (msg.t) {
         case 'welcome':
-          try {
-            localStorage.setItem(PID_KEY, msg.playerId);
-          } catch {
-            /* storage unavailable (private mode) — reload resilience just won't persist */
-          }
+          setLs(PID_KEY, msg.playerId);
           return { ...s, playerId: msg.playerId };
         case 'tables':
           return { ...s, tables: msg.tables };
@@ -105,6 +117,59 @@ function send(obj: unknown): void {
 export function setNick(nick: string): void {
   conn.update((s) => ({ ...s, nick }));
   send({ t: 'hello', nick });
+}
+
+// ---- accounts --------------------------------------------------------------
+
+interface AuthResponse {
+  ok: boolean;
+  token?: string;
+  username?: string;
+  error?: string;
+}
+
+async function authPost(path: string, body: object): Promise<AuthResponse> {
+  try {
+    const res = await fetch(`/auth/${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return (await res.json()) as AuthResponse;
+  } catch {
+    return { ok: false, error: 'Network error.' };
+  }
+}
+
+// On success, persists the session and binds the live socket to the account.
+function onAuthed(r: AuthResponse): void {
+  if (!r.ok || !r.token || !r.username) return;
+  setLs(SESSION_KEY, r.token);
+  setLs(ACCOUNT_KEY, r.username);
+  conn.update((s) => ({ ...s, account: r.username!, nick: r.username!, error: null }));
+  if (socket && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ t: 'auth', token: r.token }));
+}
+
+export async function register(username: string, password: string, email?: string): Promise<AuthResponse> {
+  const r = await authPost('register', { username, password, email });
+  onAuthed(r);
+  return r;
+}
+
+export async function login(username: string, password: string): Promise<AuthResponse> {
+  const r = await authPost('login', { username, password });
+  onAuthed(r);
+  return r;
+}
+
+export function logout(): void {
+  const token = ls(SESSION_KEY);
+  if (token) void authPost('logout', { token });
+  setLs(SESSION_KEY, null);
+  setLs(ACCOUNT_KEY, null);
+  conn.update((s) => ({ ...s, account: null }));
+  // Drop the account identity on the server by reconnecting anonymously.
+  if (socket) socket.close();
 }
 
 export function quickMatch(format?: MatchFormat): void {

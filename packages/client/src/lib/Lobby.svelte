@@ -2,6 +2,9 @@
   import { conn, setNick, quickMatch, createTable, joinTable, listTables } from './ws.ts';
   import type { MatchFormat } from './types.ts';
   import Feedback from './Feedback.svelte';
+  import Account from './Account.svelte';
+
+  const account = $derived($conn.account);
 
   let nick = $state(localStorage.getItem('liskat.nick') ?? '');
   let joinId = $state('');
@@ -15,8 +18,13 @@
     { label: 'Race 1000', sub: 'first to 1000', format: { kind: 'race', target: 1000 } },
   ];
 
-  // Settles on a nickname, defaulting to "Anonymous" if left blank.
+  // Settles on a nickname: your account name when logged in, otherwise the
+  // typed nickname (defaulting to "Anonymous").
   function ensureNick(): void {
+    if (account) {
+      setNick(account);
+      return;
+    }
     const n = nick.trim() || 'Anonymous';
     nick = n;
     localStorage.setItem('liskat.nick', n);
@@ -50,7 +58,7 @@
 </script>
 
 <div class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3;">liskat</div>
-<div class="topright"><Feedback /></div>
+<div class="topright"><Account /><Feedback /></div>
 
 <div class="lobby">
   <section class="quick">
@@ -67,8 +75,12 @@
 
   <section class="row">
     <label class="field">
-      <span>Nickname</span>
-      <input bind:value={nick} maxlength="24" placeholder="Anonymous" />
+      <span>{account ? 'Playing as' : 'Nickname'}</span>
+      {#if account}
+        <input value={account} disabled />
+      {:else}
+        <input bind:value={nick} maxlength="24" placeholder="Anonymous" />
+      {/if}
     </label>
     <button class="secondary" onclick={onCreatePrivate}>Create private table</button>
   </section>
@@ -125,6 +137,9 @@
     position: fixed;
     top: 20px;
     right: 20px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
   }
   .lobby {
     max-width: 560px;

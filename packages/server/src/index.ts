@@ -8,6 +8,9 @@ import { Lobby } from './lobby.ts';
 import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
+import { initAccounts, register, login, logout, userIdForToken, usernameForId } from './accounts.ts';
+
+await initAccounts();
 
 const PORT = Number(process.env.PORT ?? 8080);
 // How long a player's seat is held after their socket drops, so a page reload
@@ -77,25 +80,16 @@ function leaveTable(client: Client): void {
   broadcastLobby();
 }
 
-// Reattaches a reconnecting socket to a still-living player identity (held
-// open during the grace period after a drop). Falls back to the socket's
-// freshly-minted identity if there's nothing to resume.
-function resume(ws: WebSocket, playerId: string | null): void {
-  const provisional = clients.get(ws);
-  const prior = playerId ? byId.get(playerId) : undefined;
-  if (!prior || prior === provisional) return; // nothing to resume
-
-  // Drop the throwaway identity created for this socket on connect.
-  if (provisional) byId.delete(provisional.id);
-
-  // Cancel the pending eviction and point the old identity at the new socket.
-  if (prior.disconnectTimer) {
-    clearTimeout(prior.disconnectTimer);
-    prior.disconnectTimer = null;
+// Points an incoming socket at an existing identity, cancelling any pending
+// eviction, retiring a stale socket, and re-sending the player's current view.
+function rebindTo(ws: WebSocket, target: Client): void {
+  if (target.disconnectTimer) {
+    clearTimeout(target.disconnectTimer);
+    target.disconnectTimer = null;
   }
-  const oldWs = prior.ws;
-  prior.ws = ws;
-  clients.set(ws, prior);
+  const oldWs = target.ws;
+  target.ws = ws;
+  clients.set(ws, target);
   // If the identity still had a live socket (e.g. another tab), retire it
   // without dropping the player.
   if (oldWs !== ws) {
@@ -107,13 +101,54 @@ function resume(ws: WebSocket, playerId: string | null): void {
     }
   }
 
-  send(ws, { t: 'welcome', playerId: prior.id });
-  if (prior.tableId) {
-    const table = lobby.get(prior.tableId);
-    if (table) send(ws, { t: 'table', view: table.view(prior.id) });
-    else prior.tableId = null;
+  send(ws, { t: 'welcome', playerId: target.id });
+  if (target.tableId) {
+    const table = lobby.get(target.tableId);
+    if (table) send(ws, { t: 'table', view: table.view(target.id) });
+    else target.tableId = null;
   }
   send(ws, { t: 'tables', tables: lobby.publicList() });
+}
+
+// Reattaches a reconnecting socket to a still-living anonymous identity (held
+// open during the grace period after a drop). No-op if there's nothing to
+// resume — the socket keeps its freshly-minted identity.
+function resume(ws: WebSocket, playerId: string | null): void {
+  const provisional = clients.get(ws);
+  const prior = playerId ? byId.get(playerId) : undefined;
+  if (!prior || prior === provisional) return;
+  if (provisional) byId.delete(provisional.id); // drop the throwaway identity
+  rebindTo(ws, prior);
+}
+
+// Binds a socket to a logged-in account identity. Reattaches to a held seat or
+// another tab if the account is already connected; otherwise promotes this
+// socket's throwaway identity to the account.
+function authenticate(ws: WebSocket, token: string): void {
+  const provisional = clients.get(ws);
+  if (!provisional) return;
+  const userId = userIdForToken(token);
+  if (!userId) {
+    send(ws, { t: 'error', msg: 'Session invalid or expired — please log in again.' });
+    return;
+  }
+  const username = usernameForId(userId) ?? 'Player';
+  if (provisional.id === userId) {
+    provisional.nick = username;
+    return;
+  }
+  const existing = byId.get(userId);
+  byId.delete(provisional.id); // discard the throwaway identity
+  if (existing && existing !== provisional) {
+    existing.nick = username;
+    rebindTo(ws, existing);
+  } else {
+    provisional.id = userId;
+    provisional.nick = username;
+    byId.set(userId, provisional);
+    send(ws, { t: 'welcome', playerId: userId });
+    send(ws, { t: 'tables', tables: lobby.publicList() });
+  }
 }
 
 // Permanently evicts a player whose grace period expired without reconnecting.
@@ -195,20 +230,24 @@ function handle(client: Client, msg: ClientMessage): void {
   }
 }
 
-// Simple per-IP rate limiter for the public feedback endpoint.
-const feedbackHits = new Map<string, number[]>();
-function feedbackAllowed(ip: string): boolean {
-  const now = Date.now();
-  const windowMs = 10 * 60 * 1000;
-  const recent = (feedbackHits.get(ip) ?? []).filter((t) => now - t < windowMs);
-  if (recent.length >= 5) {
-    feedbackHits.set(ip, recent);
-    return false;
-  }
-  recent.push(now);
-  feedbackHits.set(ip, recent);
-  return true;
+// Simple sliding-window per-IP rate limiter, shared by the public endpoints.
+function makeLimiter(max: number, windowMs: number): (ip: string) => boolean {
+  const hits = new Map<string, number[]>();
+  return (ip: string) => {
+    const now = Date.now();
+    const recent = (hits.get(ip) ?? []).filter((t) => now - t < windowMs);
+    if (recent.length >= max) {
+      hits.set(ip, recent);
+      return false;
+    }
+    recent.push(now);
+    hits.set(ip, recent);
+    return true;
+  };
 }
+
+const feedbackAllowed = makeLimiter(5, 10 * 60 * 1000);
+const authAllowed = makeLimiter(30, 10 * 60 * 1000);
 
 function readBody(req: IncomingMessage, limit = 8000): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -243,6 +282,38 @@ async function handleFeedback(req: IncomingMessage, res: ServerResponse): Promis
   }
 }
 
+async function handleAuth(req: IncomingMessage, res: ServerResponse, action: 'register' | 'login' | 'logout'): Promise<void> {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const json = (status: number, body: object) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  if (!authAllowed(ip)) return json(429, { ok: false, error: 'Too many attempts — try again later.' });
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(await readBody(req, 2000));
+  } catch {
+    return json(400, { ok: false, error: 'Invalid request.' });
+  }
+  try {
+    const username = String(parsed.username ?? '');
+    const password = String(parsed.password ?? '');
+    if (action === 'register') {
+      const email = parsed.email ? String(parsed.email) : undefined;
+      const r = await register(username, password, email);
+      return json(r.ok ? 200 : 400, r);
+    }
+    if (action === 'login') {
+      const r = await login(username, password);
+      return json(r.ok ? 200 : 401, r);
+    }
+    await logout(String(parsed.token ?? ''));
+    return json(200, { ok: true });
+  } catch {
+    return json(500, { ok: false, error: 'Server error.' });
+  }
+}
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'text/plain' });
@@ -253,6 +324,9 @@ const httpServer = createServer((req, res) => {
     void handleFeedback(req, res);
     return;
   }
+  if (req.method === 'POST' && req.url === '/auth/register') return void handleAuth(req, res, 'register');
+  if (req.method === 'POST' && req.url === '/auth/login') return void handleAuth(req, res, 'login');
+  if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
   res.writeHead(404);
   res.end();
 });
@@ -278,6 +352,10 @@ wss.on('connection', (ws) => {
     }
     if (msg.t === 'resume') {
       resume(ws, msg.playerId);
+      return;
+    }
+    if (msg.t === 'auth') {
+      authenticate(ws, msg.token);
       return;
     }
     // Resolve the live identity for this socket (may have changed via resume).
