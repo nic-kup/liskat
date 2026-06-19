@@ -61,7 +61,13 @@
   function fmtLabel(f: MatchFormat): string {
     return f.kind === 'deals' ? `${f.deals} deals` : `race to ${f.target}`;
   }
+
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && showCreate) showCreate = false;
+  }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
 <div class="topright"><button class="navlink" onclick={() => ($page = 'howto')}>How to play</button><Account /><Feedback /></div>
@@ -140,10 +146,12 @@
     color: var(--muted);
     cursor: pointer;
     font-size: 14px;
-    padding: 0;
+    padding: 7px 12px;
+    border-radius: 8px;
   }
   .navlink:hover {
     color: #f2f5f3;
+    background: rgba(255, 255, 255, 0.12);
   }
   .topright {
     position: fixed;

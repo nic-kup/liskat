@@ -21,6 +21,9 @@
     if (view?.status === 'over' || view?.status === 'waiting') leaveTable();
     else confirmLeave = true;
   }
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && confirmLeave) confirmLeave = false;
+  }
 
   const view = $derived($conn.view as TableView);
   const round = $derived(view?.round);
@@ -191,6 +194,8 @@
     {/if}
   </div>
 {/snippet}
+
+<svelte:window onkeydown={onKey} />
 
 {#if view}
   <div class="table">

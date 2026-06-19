@@ -22,6 +22,9 @@
     password = '';
     error = '';
   }
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && open) close();
+  }
 
   async function submit() {
     if (busy || !username || !password) return;
@@ -37,6 +40,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 {#if account}
   <button class="acct" onclick={() => ($page = 'account')} title="View your account">{account}</button>

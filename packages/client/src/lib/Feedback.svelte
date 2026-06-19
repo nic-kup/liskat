@@ -15,6 +15,10 @@
     }
   }
 
+  function onKey(e: KeyboardEvent) {
+    if (e.key === 'Escape' && open) close();
+  }
+
   async function submit() {
     if (message.trim().length < 2) return;
     status = 'sending';
@@ -37,6 +41,8 @@
     }
   }
 </script>
+
+<svelte:window onkeydown={onKey} />
 
 <button class="link-btn" onclick={() => (open = true)}>Send feedback</button>
 
