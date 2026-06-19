@@ -217,11 +217,11 @@
           {@const say = round?.phase === 'bidding' ? bidSay(p.role) : ''}
           <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
             <div class="who">
+              {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
               {#if clockSlot === p.slot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}
-              {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
             <div class="backs">
@@ -351,9 +351,9 @@
       <!-- My hand -->
       <div class="myseat" class:turn={isMyTurn()}>
         <div class="who">
+          {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           {#if clockSlot === mySlot && clockDisplay}<span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock big bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{:else}<strong>{me?.nick}</strong>{/if}
-          {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing' && isMyTurn()}
             <span class="turnhint active">your turn</span>
