@@ -10,7 +10,7 @@
   "scripts": {
     "test": "npm run test --workspaces --if-present",
     "server": "bun --watch packages/server/src/index.ts",
-    "client": "npm run dev --workspace @liskat/client"
+    "client": "cd packages/client && vite"
   },
   "license": "AGPL-3.0-or-later"
 }
