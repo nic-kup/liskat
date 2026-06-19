@@ -198,7 +198,7 @@
   <div class="table">
     <div class="topbar">
       <button class="ghost" onclick={onLeave}>← Leave</button>
-      <span class="wordmark" style="font-weight:800; font-size:18px; color:#f2f5f3;">liskat</span>
+      <button class="wordmark" style="font-weight:800; font-size:18px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={onLeave} title="Home">liskat</button>
       <div class="info">
         {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
         · deal {view.dealIndex + 1}
@@ -444,6 +444,9 @@
   }
   .bidtag {
     color: #ffd54a;
+  }
+  .wordmark:hover {
+    color: #ffa733 !important;
   }
   .topbar {
     display: grid;

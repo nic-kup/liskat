@@ -39,7 +39,7 @@
   }
 </script>
 
-<div class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3;">liskat</div>
+<button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
 <div class="topright">
   <button class="link" onclick={() => ($page = 'lobby')}>← Lobby</button>
   <button class="link" onclick={logout}>Log out</button>
@@ -113,6 +113,9 @@
   }
   .link:hover {
     color: #f2f5f3;
+  }
+  .brand:hover {
+    color: #ffa733 !important;
   }
   .account {
     max-width: 760px;

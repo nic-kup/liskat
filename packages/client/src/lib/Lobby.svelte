@@ -3,6 +3,7 @@
   import type { MatchFormat } from './types.ts';
   import Feedback from './Feedback.svelte';
   import Account from './Account.svelte';
+  import { page } from './ui.ts';
 
   const account = $derived($conn.account);
   const searching = $derived($conn.searching);
@@ -62,7 +63,7 @@
   }
 </script>
 
-<div class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3;">liskat</div>
+<button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
 <div class="topright"><Account /><Feedback /></div>
 
 <div class="lobby">
@@ -130,6 +131,9 @@
 {/if}
 
 <style>
+  .brand:hover {
+    color: #ffa733 !important;
+  }
   .topright {
     position: fixed;
     top: 20px;
