@@ -64,7 +64,7 @@
 </script>
 
 <button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
-<div class="topright"><Account /><Feedback /></div>
+<div class="topright"><button class="navlink" onclick={() => ($page = 'howto')}>How to play</button><Account /><Feedback /></div>
 
 <div class="lobby">
   <section class="quick">
@@ -133,6 +133,17 @@
 <style>
   .brand:hover {
     color: #ffa733 !important;
+  }
+  .navlink {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 14px;
+    padding: 0;
+  }
+  .navlink:hover {
+    color: #f2f5f3;
   }
   .topright {
     position: fixed;

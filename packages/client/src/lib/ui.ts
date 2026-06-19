@@ -2,4 +2,4 @@
 // two non-game screens; while you're in a game the table view takes over.
 import { writable } from 'svelte/store';
 
-export const page = writable<'lobby' | 'account'>('lobby');
+export const page = writable<'lobby' | 'account' | 'howto'>('lobby');
