@@ -13,6 +13,10 @@ export default defineConfig({
         ws: true,
         rewrite: (p) => p.replace(/^\/ws/, ''),
       },
+      '/feedback': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
   },
 });

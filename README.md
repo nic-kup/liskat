@@ -49,6 +49,24 @@ ready for German-suited cards.
 - Full session (e.g. 9 deals)
 - Race to a target score (e.g. first to 1000)
 
+## Feedback
+
+The lobby has a feedback form (and a `mailto:` link). Submissions hit the
+server's `POST /feedback` endpoint, which always appends them to
+`packages/server/data/feedback.jsonl`. If SMTP credentials are present in the
+environment, each submission is also emailed. For Hostinger:
+
+```bash
+SMTP_HOST=smtp.hostinger.com \
+SMTP_PORT=465 \
+SMTP_USER=feedback@liskat.com \
+SMTP_PASS='<mailbox password>' \
+FEEDBACK_TO=feedback@liskat.com \
+bun run packages/server/src/index.ts
+```
+
+Without these vars, the form still works — feedback is just stored to the file.
+
 ## License
 
 AGPL-3.0-or-later, matching lichess.

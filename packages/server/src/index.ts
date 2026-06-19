@@ -3,10 +3,11 @@
 // and sends each player a redacted view (you only see your own hand).
 
 import { WebSocketServer, type WebSocket } from 'ws';
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { Lobby } from './lobby.ts';
 import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
+import { recordFeedback } from './feedback.ts';
 
 const PORT = Number(process.env.PORT ?? 8080);
 const lobby = new Lobby();
@@ -135,10 +136,62 @@ function handle(client: Client, msg: ClientMessage): void {
   }
 }
 
+// Simple per-IP rate limiter for the public feedback endpoint.
+const feedbackHits = new Map<string, number[]>();
+function feedbackAllowed(ip: string): boolean {
+  const now = Date.now();
+  const windowMs = 10 * 60 * 1000;
+  const recent = (feedbackHits.get(ip) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= 5) {
+    feedbackHits.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  feedbackHits.set(ip, recent);
+  return true;
+}
+
+function readBody(req: IncomingMessage, limit = 8000): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (c) => {
+      data += c;
+      if (data.length > limit) reject(new Error('too large'));
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+async function handleFeedback(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const json = (status: number, body: object) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  if (!feedbackAllowed(ip)) return json(429, { ok: false, error: 'too many submissions, try again later' });
+  try {
+    const parsed = JSON.parse(await readBody(req));
+    // Honeypot: bots fill hidden fields. Pretend success and drop.
+    if (parsed.website) return json(200, { ok: true });
+    const message = String(parsed.message ?? '').trim();
+    if (message.length < 2 || message.length > 4000) return json(400, { ok: false, error: 'message required (2–4000 chars)' });
+    const contact = String(parsed.contact ?? '').trim().slice(0, 200) || undefined;
+    await recordFeedback({ message: message.slice(0, 4000), contact, ip });
+    json(200, { ok: true });
+  } catch {
+    json(400, { ok: false, error: 'invalid request' });
+  }
+}
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'text/plain' });
     res.end('ok');
+    return;
+  }
+  if (req.method === 'POST' && req.url === '/feedback') {
+    void handleFeedback(req, res);
     return;
   }
   res.writeHead(404);

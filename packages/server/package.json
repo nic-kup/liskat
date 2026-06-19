@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@liskat/engine": "*",
+    "nodemailer": "^6.9.0",
     "ws": "^8.18.0"
   },
   "license": "AGPL-3.0-or-later"

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { conn, setNick, quickMatch, createTable, joinTable, listTables } from './ws.ts';
   import type { MatchFormat } from './types.ts';
+  import Feedback from './Feedback.svelte';
 
   let nick = $state(localStorage.getItem('liskat.nick') ?? '');
   let joinId = $state('');
@@ -94,7 +95,7 @@
 
   <footer>
     <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
-    <span class="feedback">Feedback at <a href="mailto:feedback@liskat.com">feedback@liskat.com</a></span>
+    <span class="feedback"><Feedback /> · or email <a href="mailto:feedback@liskat.com">feedback@liskat.com</a></span>
   </footer>
 </div>
 
