@@ -6,3 +6,6 @@ build/
 .env
 .env.*
 coverage/
+
+# local dev helpers / preview
+.join-bots.mjs
