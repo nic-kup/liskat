@@ -7,6 +7,7 @@ import type { Card, Contract, Announcements, MatchFormat } from '@liskat/engine'
 
 export type ClientMessage =
   | { t: 'hello'; nick: string }
+  | { t: 'resume'; playerId: string | null }
   | { t: 'createTable'; visibility: 'private' | 'public'; format: MatchFormat }
   | { t: 'joinTable'; tableId: string }
   | { t: 'quickMatch'; format?: MatchFormat }

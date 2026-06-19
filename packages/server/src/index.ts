@@ -10,6 +10,9 @@ import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
 
 const PORT = Number(process.env.PORT ?? 8080);
+// How long a player's seat is held after their socket drops, so a page reload
+// can reconnect to the same identity instead of being kicked from the game.
+const RECONNECT_GRACE_MS = 60_000;
 const lobby = new Lobby();
 
 interface Client {
@@ -17,6 +20,7 @@ interface Client {
   nick: string;
   tableId: string | null;
   ws: WebSocket;
+  disconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
 const clients = new Map<WebSocket, Client>();
@@ -71,6 +75,61 @@ function leaveTable(client: Client): void {
     lobby.prune();
   }
   broadcastLobby();
+}
+
+// Reattaches a reconnecting socket to a still-living player identity (held
+// open during the grace period after a drop). Falls back to the socket's
+// freshly-minted identity if there's nothing to resume.
+function resume(ws: WebSocket, playerId: string | null): void {
+  const provisional = clients.get(ws);
+  const prior = playerId ? byId.get(playerId) : undefined;
+  if (!prior || prior === provisional) return; // nothing to resume
+
+  // Drop the throwaway identity created for this socket on connect.
+  if (provisional) byId.delete(provisional.id);
+
+  // Cancel the pending eviction and point the old identity at the new socket.
+  if (prior.disconnectTimer) {
+    clearTimeout(prior.disconnectTimer);
+    prior.disconnectTimer = null;
+  }
+  const oldWs = prior.ws;
+  prior.ws = ws;
+  clients.set(ws, prior);
+  // If the identity still had a live socket (e.g. another tab), retire it
+  // without dropping the player.
+  if (oldWs !== ws) {
+    clients.delete(oldWs);
+    try {
+      oldWs.close();
+    } catch {
+      /* already closing */
+    }
+  }
+
+  send(ws, { t: 'welcome', playerId: prior.id });
+  if (prior.tableId) {
+    const table = lobby.get(prior.tableId);
+    if (table) send(ws, { t: 'table', view: table.view(prior.id) });
+    else prior.tableId = null;
+  }
+  send(ws, { t: 'tables', tables: lobby.publicList() });
+}
+
+// Permanently evicts a player whose grace period expired without reconnecting.
+function dropClient(client: Client): void {
+  client.disconnectTimer = null;
+  if (client.tableId) {
+    const table = lobby.get(client.tableId);
+    client.tableId = null;
+    if (table) {
+      table.removePlayer(client.id);
+      broadcastTable(table);
+      lobby.prune();
+    }
+    broadcastLobby();
+  }
+  byId.delete(client.id);
 }
 
 function handle(client: Client, msg: ClientMessage): void {
@@ -201,7 +260,9 @@ const httpServer = createServer((req, res) => {
 const wss = new WebSocketServer({ server: httpServer });
 
 wss.on('connection', (ws) => {
-  const client: Client = { id: newId(), nick: `Guest-${counter}`, tableId: null, ws };
+  // Every socket starts with a throwaway identity; a `resume` message can swap
+  // it for an existing one whose seat is being held open.
+  const client: Client = { id: newId(), nick: `Guest-${counter}`, tableId: null, ws, disconnectTimer: null };
   clients.set(ws, client);
   byId.set(client.id, client);
   send(ws, { t: 'welcome', playerId: client.id });
@@ -215,17 +276,30 @@ wss.on('connection', (ws) => {
       send(ws, { t: 'error', msg: 'invalid JSON' });
       return;
     }
+    if (msg.t === 'resume') {
+      resume(ws, msg.playerId);
+      return;
+    }
+    // Resolve the live identity for this socket (may have changed via resume).
+    const c = clients.get(ws);
+    if (!c) return;
     try {
-      handle(client, msg);
+      handle(c, msg);
     } catch (e) {
       send(ws, { t: 'error', msg: (e as Error).message });
     }
   });
 
   ws.on('close', () => {
-    leaveTable(client);
+    const c = clients.get(ws);
     clients.delete(ws);
-    byId.delete(client.id);
+    if (!c || c.ws !== ws) return; // this socket was already superseded by a resume
+    if (c.tableId) {
+      // Hold the seat briefly so a reload can reconnect; evict if it doesn't.
+      c.disconnectTimer = setTimeout(() => dropClient(c), RECONNECT_GRACE_MS);
+    } else {
+      byId.delete(c.id);
+    }
   });
 });
 

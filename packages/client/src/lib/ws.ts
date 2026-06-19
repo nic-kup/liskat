@@ -26,6 +26,17 @@ export const conn = writable<ConnState>({
 let socket: WebSocket | null = null;
 let queue: string[] = [];
 
+// Persisted so a page reload can reconnect to the same seat instead of being
+// dropped from the game.
+const PID_KEY = 'liskat.pid';
+function storedPid(): string | null {
+  try {
+    return localStorage.getItem(PID_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function wsUrl(): string {
   const env = import.meta.env.VITE_WS_URL as string | undefined;
   if (env) return env;
@@ -40,6 +51,9 @@ export function connect(): void {
 
   ws.onopen = () => {
     conn.update((s) => ({ ...s, connected: true }));
+    // Try to reclaim our previous identity before doing anything else.
+    const pid = storedPid();
+    if (pid) ws.send(JSON.stringify({ t: 'resume', playerId: pid }));
     for (const m of queue) ws.send(m);
     queue = [];
   };
@@ -61,6 +75,11 @@ export function connect(): void {
     conn.update((s) => {
       switch (msg.t) {
         case 'welcome':
+          try {
+            localStorage.setItem(PID_KEY, msg.playerId);
+          } catch {
+            /* storage unavailable (private mode) — reload resilience just won't persist */
+          }
           return { ...s, playerId: msg.playerId };
         case 'tables':
           return { ...s, tables: msg.tables };
