@@ -134,6 +134,10 @@
     display: flex;
     gap: 14px;
     align-items: center;
+    /* The account modal renders inside here; keep the whole layer above the
+       lobby so opacity-reduced buttons (greyed "create", disabled "join")
+       — which form their own stacking contexts — can't paint over it. */
+    z-index: 200;
   }
   .lobby {
     max-width: 560px;
