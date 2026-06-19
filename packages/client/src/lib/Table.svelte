@@ -353,12 +353,12 @@
         <div class="who">
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           {#if clockSlot === mySlot && clockDisplay}<span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock big bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{:else}<strong>{me?.nick}</strong>{/if}
-          <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
           {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing' && isMyTurn()}
             <span class="turnhint active">your turn</span>
           {/if}
+          <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
         </div>
         <div class="hand">
           {#each hand as card (cardId(card))}
@@ -505,6 +505,9 @@
     border-radius: 10px;
     padding: 1px 8px;
     font-variant-numeric: tabular-nums;
+  }
+  .myseat .score {
+    margin-left: auto;
   }
   .badge {
     background: var(--accent);
