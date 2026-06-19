@@ -251,6 +251,14 @@
                 {round.result.schneider ? '· Schneider' : ''}{round.result.schwarz ? '· Schwarz' : ''}
               </h3>
             {/if}
+            {#if round?.skat}
+              <div class="skatreveal">
+                <span class="skat-label">Skat</span>
+                <div class="skat-cards">
+                  {#each round.skat as c}<CardView card={c} width={54} />{/each}
+                </div>
+              </div>
+            {/if}
             <p class="muted">next deal shortly…</p>
           </div>
         {:else if round?.phase === 'bidding'}
@@ -388,10 +396,6 @@
               </div>
             {/each}
           </div>
-          {#if round.lastTrickWinnerSlot !== null}
-            {@const wid = identityForSlot(round.lastTrickWinnerSlot)}
-            <div class="lt-won">won by <span class="marker" style="color:{wid.color}">{wid.marker}</span> {slotName(round.lastTrickWinnerSlot)}</div>
-          {/if}
         </div>
       {/if}
 
@@ -667,8 +671,7 @@
     padding: 10px;
     backdrop-filter: blur(6px);
   }
-  .lt-label,
-  .lt-won {
+  .lt-label {
     font-size: 11px;
     color: var(--muted);
     text-transform: uppercase;
@@ -689,8 +692,20 @@
     font-size: 12px;
     line-height: 1;
   }
-  .lt-won .marker {
-    font-size: 12px;
+  .skatreveal {
+    margin: 10px 0 4px;
+  }
+  .skat-label {
+    font-size: 11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+  .skat-cards {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 6px;
   }
   .hline {
     margin: 3px 0;
