@@ -1,11 +1,13 @@
 <script lang="ts">
   import { CHAT_PRESETS } from '@liskat/engine';
   import { sendChat } from './ws.ts';
+  import { identityForSlot } from './players.ts';
 
   interface Props {
-    messages: { nick: string; text: string }[];
+    messages: { nick: string; slot: number; text: string }[];
+    youSlot: number | null;
   }
-  let { messages }: Props = $props();
+  let { messages, youSlot }: Props = $props();
   let open = $state(true);
 </script>
 
@@ -14,7 +16,8 @@
   {#if open}
     <div class="log">
       {#each messages.slice(-8) as m}
-        <div class="msg"><strong>{m.nick}:</strong> {m.text}</div>
+        {@const id = identityForSlot(m.slot, youSlot)}
+        <div class="msg"><span class="marker" style="color:{id.color}">{id.marker}</span> <strong>{m.nick}:</strong> {m.text}</div>
       {/each}
       {#if messages.length === 0}<div class="empty">Say hi 👋</div>{/if}
     </div>
@@ -57,6 +60,9 @@
   }
   .msg {
     padding: 2px 0;
+  }
+  .marker {
+    font-size: 11px;
   }
   .empty {
     color: var(--muted);

@@ -5,6 +5,7 @@
   import CardView from './Card.svelte';
   import Chat from './Chat.svelte';
   import History from './History.svelte';
+  import { identityForSlot } from './players.ts';
 
   let hintsOpen = $state(localStorage.getItem('liskat.hints') !== 'closed');
   function toggleHints() {
@@ -18,6 +19,7 @@
   const me = $derived(view?.players.find((p) => p.you));
   const opponents = $derived(view ? view.players.filter((p) => p.slot !== mySlot) : []);
   const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
+  const myIdentity = $derived(identityForSlot(mySlot, mySlot));
 
   // The seat currently "speaking" during the auction (for highlighting).
   const bidActiveSlot = $derived.by(() => {
@@ -160,8 +162,10 @@
       <!-- Opponents -->
       <div class="opponents">
         {#each opponents as p}
+          {@const id = identityForSlot(p.slot, mySlot)}
           <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
             <div class="who">
+              <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
               {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
@@ -272,6 +276,7 @@
       <!-- My hand -->
       <div class="myseat" class:turn={isMyTurn()}>
         <div class="who">
+          <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           <strong>{me?.nick}</strong>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
@@ -316,7 +321,7 @@
       {/if}
 
       <History history={view.history} players={view.players} />
-      <Chat messages={view.chat} />
+      <Chat messages={view.chat} youSlot={view.youSlot} />
     {/if}
 
     {#if $conn.error}<p class="error">{$conn.error}</p>{/if}
@@ -372,8 +377,12 @@
   .who {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     font-size: 14px;
+  }
+  .marker {
+    font-size: 13px;
+    line-height: 1;
   }
   .score {
     background: rgba(255, 255, 255, 0.12);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { HistoryEntry, PlayerView } from './types.ts';
+  import { identityForSlot } from './players.ts';
 
   interface Props {
     history: HistoryEntry[];
@@ -8,9 +9,7 @@
   let { history, players }: Props = $props();
   let open = $state(false);
 
-  function nick(slot: number): string {
-    return players[slot]?.nick ?? `P${slot + 1}`;
-  }
+  const youSlot = $derived(players.find((p) => p.you)?.slot ?? null);
 </script>
 
 <div class="history">
@@ -21,7 +20,10 @@
         <thead>
           <tr>
             <th>#</th>
-            {#each players as p}<th>{p.nick}</th>{/each}
+            {#each players as p}
+              {@const id = identityForSlot(p.slot, youSlot)}
+              <th><span class="marker" style="color:{id.color}">{id.marker}</span> {p.nick}</th>
+            {/each}
           </tr>
         </thead>
         <tbody>
@@ -106,6 +108,9 @@
   }
   .tag.lost {
     color: #ff8a80;
+  }
+  .marker {
+    font-size: 10px;
   }
   .empty {
     text-align: center;

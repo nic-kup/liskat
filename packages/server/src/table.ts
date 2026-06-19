@@ -53,7 +53,7 @@ export class Table {
   match: MatchState | null = null;
   round: RoundState | null = null;
   dealIndex = 0;
-  chat: { nick: string; text: string }[] = [];
+  chat: { nick: string; slot: number; text: string }[] = [];
   history: HistoryEntry[] = [];
 
   // Injected so the server can re-send views whenever something changes.
@@ -184,9 +184,10 @@ export class Table {
 
   // Adds a canned chat phrase from a seated player. Free text is rejected.
   addChat(id: string, text: string): boolean {
-    const seat = this.seats.find((s) => s?.id === id);
+    const slot = this.seats.findIndex((s) => s?.id === id);
+    const seat = slot >= 0 ? this.seats[slot] : null;
     if (!seat || !isChatPreset(text)) return false;
-    this.chat.push({ nick: seat.nick, text });
+    this.chat.push({ nick: seat.nick, slot, text });
     if (this.chat.length > 30) this.chat.shift();
     return true;
   }
@@ -280,7 +281,7 @@ export interface TableView {
   players: { slot: number; role: Seat; nick: string | null; occupied: boolean; you: boolean }[];
   match: { scores: number[]; dealsPlayed: number; finished: boolean; winner: number | null } | null;
   round?: RoundView;
-  chat: { nick: string; text: string }[];
+  chat: { nick: string; slot: number; text: string }[];
   history: HistoryEntry[];
 }
 
