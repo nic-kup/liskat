@@ -474,7 +474,31 @@ const httpServer = createServer((req, res) => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
+// Heartbeat: ping every connection periodically so proxies (Fly's, in
+// particular) don't cull idle WebSockets, and so we can detect and drop sockets
+// that have silently died. Browsers answer pings with pongs automatically.
+const HEARTBEAT_MS = 25_000;
+type Keepalive = { isAlive?: boolean };
+const heartbeatTimer = setInterval(() => {
+  for (const ws of wss.clients) {
+    const w = ws as unknown as Keepalive;
+    if (w.isAlive === false) {
+      ws.terminate(); // missed the previous ping — it's gone
+      continue;
+    }
+    w.isAlive = false;
+    try {
+      ws.ping();
+    } catch {
+      /* socket closing */
+    }
+  }
+}, HEARTBEAT_MS);
+wss.on('close', () => clearInterval(heartbeatTimer));
+
 wss.on('connection', (ws) => {
+  (ws as unknown as Keepalive).isAlive = true;
+  ws.on('pong', () => ((ws as unknown as Keepalive).isAlive = true));
   // Every socket starts with a throwaway identity; a `resume` message can swap
   // it for an existing one whose seat is being held open.
   const client: Client = { id: newId(), nick: `Guest-${counter}`, tableId: null, ws, disconnectTimer: null };

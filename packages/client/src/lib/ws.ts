@@ -53,6 +53,11 @@ export const conn = writable<ConnState>({
 
 let socket: WebSocket | null = null;
 let queue: string[] = [];
+// Reconnect backoff and a grace period so a brief drop+reconnect doesn't flip
+// the status indicator to "connecting".
+let reconnectDelay = 1000;
+let disconnectGrace: ReturnType<typeof setTimeout> | null = null;
+const DISCONNECT_GRACE_MS = 4000;
 
 function wsUrl(): string {
   const env = import.meta.env.VITE_WS_URL as string | undefined;
@@ -67,6 +72,11 @@ export function connect(): void {
   socket = ws;
 
   ws.onopen = () => {
+    if (disconnectGrace) {
+      clearTimeout(disconnectGrace);
+      disconnectGrace = null;
+    }
+    reconnectDelay = 1000;
     conn.update((s) => ({ ...s, connected: true }));
     // Re-establish identity before anything else: a logged-in session takes
     // precedence; otherwise reclaim the anonymous seat we last held.
@@ -80,9 +90,15 @@ export function connect(): void {
 
   ws.onclose = () => {
     socket = null;
-    conn.update((s) => ({ ...s, connected: false }));
-    // Try to reconnect after a short delay.
-    setTimeout(connect, 1500);
+    // Only show "connecting" if we don't get back within the grace window.
+    if (!disconnectGrace) {
+      disconnectGrace = setTimeout(() => {
+        disconnectGrace = null;
+        conn.update((s) => ({ ...s, connected: false }));
+      }, DISCONNECT_GRACE_MS);
+    }
+    setTimeout(connect, reconnectDelay);
+    reconnectDelay = Math.min(Math.round(reconnectDelay * 1.7), 10000);
   };
 
   ws.onmessage = (ev) => {
