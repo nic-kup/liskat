@@ -290,6 +290,14 @@
     color: var(--muted);
     margin-bottom: 12px;
   }
+  /* The global `input { width: 100% }` rule is meant for text fields; keep the
+     checkbox its natural size so the label sits beside it. */
+  .opt input {
+    width: auto;
+    flex: none;
+    margin: 0;
+    padding: 0;
+  }
   .note {
     font-size: 12px;
     color: var(--muted);
