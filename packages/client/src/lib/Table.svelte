@@ -247,7 +247,7 @@
               <h3 class:won={round.result.won} class:lost={!round.result.won}>
                 <span class="marker" style="color:{did.color}">{did.marker}</span>
                 {slotName(round.declarerSlot ?? 0)} {round.result.won ? 'won' : 'lost'}
-                {contractLabel(round.contract)} for {round.result.value}{#if round.contract?.type !== 'null' && round.result.cardPoints != null} with {round.result.cardPoints} eyes{/if}
+                {contractLabel(round.contract)} for {round.result.value}{#if round.contract?.type !== 'null' && round.result.cardPoints != null}<br />with {round.result.cardPoints} eyes{/if}
                 {round.result.schneider ? '· Schneider' : ''}{round.result.schwarz ? '· Schwarz' : ''}
               </h3>
             {/if}
