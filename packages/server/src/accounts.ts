@@ -7,13 +7,12 @@
 
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from 'node:crypto';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { DATA_DIR } from './datadir.ts';
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
-const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const USERS_FILE = join(DATA_DIR, 'users.json');
 const SESSIONS_FILE = join(DATA_DIR, 'sessions.json');
 

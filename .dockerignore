@@ -1,0 +1,14 @@
+node_modules
+**/node_modules
+dist
+**/dist
+.git
+.github
+*.log
+.DS_Store
+.env
+.env.*
+# local persistent data — never ship it into the image
+packages/server/data
+.join-bots.mjs
+.qm-bots.mjs

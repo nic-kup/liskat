@@ -4,6 +4,9 @@
 
 import { WebSocketServer, type WebSocket } from 'ws';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, extname, join, normalize } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { Lobby } from './lobby.ts';
 import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
@@ -403,6 +406,53 @@ async function handleProfile(req: IncomingMessage, res: ServerResponse): Promise
   json(200, { ok: true, username: usernameForId(userId), ratings: ratingsFor(userId), history: historyFor(userId) });
 }
 
+// Serve the built client (same origin as the API/WS, so /ws, /auth, /feedback
+// all resolve). Override the location with LISKAT_CLIENT_DIR if needed.
+const CLIENT_DIR = process.env.LISKAT_CLIENT_DIR ?? join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'client', 'dist');
+const MIME: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.ico': 'image/x-icon',
+  '.json': 'application/json',
+  '.woff2': 'font/woff2',
+  '.woff': 'font/woff',
+  '.map': 'application/json',
+  '.txt': 'text/plain; charset=utf-8',
+  '.webmanifest': 'application/manifest+json',
+};
+
+async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const urlPath = decodeURIComponent((req.url ?? '/').split('?')[0]);
+  // Resolve within CLIENT_DIR; strip any leading traversal so we can't escape it.
+  const rel = normalize(urlPath).replace(/^(\.\.[/\\])+/, '');
+  let filePath = join(CLIENT_DIR, rel);
+  if (filePath !== CLIENT_DIR && !filePath.startsWith(CLIENT_DIR + (process.platform === 'win32' ? '\\' : '/'))) {
+    res.writeHead(403);
+    res.end();
+    return;
+  }
+  try {
+    if (filePath === CLIENT_DIR || (await stat(filePath)).isDirectory()) filePath = join(filePath, 'index.html');
+    const body = await readFile(filePath);
+    res.writeHead(200, { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' });
+    res.end(body);
+  } catch {
+    // Single-page app: unknown paths fall back to index.html.
+    try {
+      const body = await readFile(join(CLIENT_DIR, 'index.html'));
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+      res.end(body);
+    } catch {
+      res.writeHead(404);
+      res.end('not found');
+    }
+  }
+}
+
 const httpServer = createServer((req, res) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'content-type': 'text/plain' });
@@ -417,6 +467,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/auth/login') return void handleAuth(req, res, 'login');
   if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
   if (req.method === 'POST' && req.url === '/auth/profile') return void handleProfile(req, res);
+  if (req.method === 'GET' || req.method === 'HEAD') return void serveStatic(req, res);
   res.writeHead(404);
   res.end();
 });

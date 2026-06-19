@@ -1,0 +1,28 @@
+# Fly.io config for Liskat. Single always-on machine: all live game state
+# (tables, matchmaking queues) is in-memory in one process, and accounts /
+# ratings / feedback persist on the mounted volume.
+
+app = "liskat"
+primary_region = "fra"
+
+[build]
+
+[env]
+  PORT = "8080"
+  LISKAT_DATA_DIR = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  # WebSockets are long-lived; the default concurrency limits are fine.
+
+[mounts]
+  source = "liskat_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

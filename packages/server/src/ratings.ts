@@ -15,10 +15,9 @@
 
 import { randomBytes } from 'node:crypto';
 import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { DATA_DIR } from './datadir.ts';
 
-const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const RATINGS_FILE = join(DATA_DIR, 'ratings.json');
 const MATCHES_FILE = join(DATA_DIR, 'matches.json');
 

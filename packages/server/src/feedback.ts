@@ -11,10 +11,9 @@
 
 import nodemailer from 'nodemailer';
 import { appendFile, mkdir } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
+import { DATA_DIR } from './datadir.ts';
 
-const DATA_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'data');
 const FILE = join(DATA_DIR, 'feedback.jsonl');
 
 export interface Feedback {
