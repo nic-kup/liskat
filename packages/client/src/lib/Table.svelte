@@ -215,7 +215,7 @@
         {#each opponents as p}
           {@const id = identityForSlot(p.slot)}
           {@const say = round?.phase === 'bidding' ? bidSay(p.role) : ''}
-          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot} style="--seat-color:{id.color}">
+          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
             <div class="who">
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
@@ -341,7 +341,7 @@
       </div>
 
       <!-- My hand -->
-      <div class="myseat" class:turn={isMyTurn()} style="--seat-color:{myIdentity.color}">
+      <div class="myseat" class:turn={isMyTurn()}>
         <div class="who">
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
           <strong>{me?.nick}</strong>
@@ -452,10 +452,7 @@
   }
   .seat.turn,
   .myseat.turn {
-    background: rgba(255, 255, 255, 0.1);
-    box-shadow:
-      0 0 0 2px var(--seat-color, #ffd54a),
-      0 0 20px -2px var(--seat-color, #ffd54a);
+    background: rgba(255, 255, 255, 0.22);
   }
   .clock {
     font-variant-numeric: tabular-nums;
