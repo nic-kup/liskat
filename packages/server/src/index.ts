@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { Lobby } from './lobby.ts';
 import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
-import { recordFeedback } from './feedback.ts';
+import { recordFeedback, readFeedback } from './feedback.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId, accountCount } from './accounts.ts';
 import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, matchById, MATCH_TYPES, type MatchType } from './ratings.ts';
 import { writeMatchDetail, readMatchDetail } from './history.ts';
@@ -543,7 +543,7 @@ function gatherStats(): object {
   };
 }
 
-function handleStats(req: IncomingMessage, res: ServerResponse): void {
+async function handleStats(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const json = (status: number, body: object) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -551,7 +551,7 @@ function handleStats(req: IncomingMessage, res: ServerResponse): void {
   if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled — set ADMIN_TOKEN' });
   const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
   if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
-  json(200, gatherStats());
+  json(200, { ...gatherStats(), feedback: await readFeedback(100) });
 }
 
 // Self-contained monitoring dashboard served at /admin. Prompts for the admin
@@ -565,6 +565,7 @@ const ADMIN_HTML = [
   'h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;color:#b9c7c0;text-transform:uppercase;letter-spacing:1px}',
   '.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}',
   '.card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:12px;padding:14px 16px}',
+  '.fb{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);border-radius:8px;padding:10px 12px;margin-bottom:8px;white-space:pre-wrap;word-break:break-word}.fbmeta{color:#b9c7c0;font-size:12px;margin-bottom:4px}',
   '.card .label{font-size:12px;color:#b9c7c0}.card .value{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}',
   'table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:6px 8px;border-bottom:1px solid rgba(255,255,255,.08)}th{color:#b9c7c0}',
   'input{padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.06);color:#f2f5f3;font-size:15px}',
@@ -575,6 +576,7 @@ const ADMIN_HTML = [
   '<div id="login" style="display:none;margin-top:16px"><p>Admin key</p><input id="key" type="password" autocomplete="off"> <button onclick="saveKey()">View</button><p id="err"></p></div>',
   '<div id="dash" style="display:none"><div class="grid" id="cards"></div><h2>Active games</h2>',
   '<table><thead><tr><th>ID</th><th>Format</th><th>Seated</th><th>Status</th><th>Ranked</th></tr></thead><tbody id="games"></tbody></table>',
+  '<h2>Feedback</h2><div id="feedback"></div>',
   '<p class="muted" id="foot"></p><p class="muted"><button onclick="logout()">Forget key</button></p></div>',
   '<script>',
   'var key=localStorage.getItem("liskat.adminkey")||"";',
@@ -583,6 +585,7 @@ const ADMIN_HTML = [
   'function logout(){localStorage.removeItem("liskat.adminkey");key="";load()}',
   'function card(l,v){return "<div class=\\"card\\"><div class=\\"label\\">"+l+"</div><div class=\\"value\\">"+v+"</div></div>"}',
   'function up(s){var h=Math.floor(s/3600),m=Math.floor((s%3600)/60);return h+"h "+m+"m"}',
+  'function esc(s){return String(s).split("&").join("&amp;").split("<").join("&lt;").split(">").join("&gt;")}',
   'async function load(){',
   ' if(!key){show("login",true);show("dash",false);return}',
   ' try{var r=await fetch("/stats",{headers:{"x-admin-key":key}});',
@@ -591,6 +594,7 @@ const ADMIN_HTML = [
   '  var s=await r.json();show("login",false);show("dash",true);',
   '  document.getElementById("cards").innerHTML=card("Connected",s.connected)+card("Accounts online",s.onlineAccounts)+card("Active games",s.activeGames)+card("In queue",s.queued)+card("Waiting tables",s.waitingTables)+card("Registered accounts",s.registeredAccounts)+card("Matches played",s.matchesPlayed)+card("Uptime",up(s.uptimeSec));',
   '  document.getElementById("games").innerHTML=s.games.length?s.games.map(function(g){return "<tr><td>"+g.id+"</td><td>"+g.format+"</td><td>"+g.seated+"/3</td><td>"+g.status+"</td><td>"+(g.rated?"yes":"no")+"</td></tr>"}).join(""):"<tr><td colspan=5 class=muted>No active games.</td></tr>";',
+  '  document.getElementById("feedback").innerHTML=(s.feedback&&s.feedback.length)?s.feedback.map(function(f){return "<div class=fb><div class=fbmeta>"+esc(new Date(f.ts).toLocaleString()+(f.contact?" · "+f.contact:"")+(f.ip?" · "+f.ip:""))+"</div>"+esc(f.message)+"</div>"}).join(""):"<p class=muted>No feedback yet.</p>";',
   '  document.getElementById("foot").textContent="Updated "+new Date(s.now).toLocaleTimeString()+" · refreshes every 5s";',
   ' }catch(e){var f=document.getElementById("foot");if(f)f.textContent="Network error."}',
   '}',

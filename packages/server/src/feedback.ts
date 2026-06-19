@@ -10,7 +10,7 @@
 //   FEEDBACK_TO=feedback@liskat.com  (default = SMTP_USER)
 
 import nodemailer from 'nodemailer';
-import { appendFile, mkdir } from 'node:fs/promises';
+import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DATA_DIR } from './datadir.ts';
 
@@ -40,6 +40,32 @@ function mailer(): nodemailer.Transporter | null {
     auth: { user, pass },
   });
   return transporter;
+}
+
+export interface FeedbackEntry {
+  ts: string;
+  message: string;
+  contact?: string;
+  ip?: string;
+}
+
+// Reads the most recent feedback entries, newest first (for the admin page).
+export async function readFeedback(limit = 100): Promise<FeedbackEntry[]> {
+  try {
+    const raw = await readFile(FILE, 'utf8');
+    const lines = raw.split('\n').filter(Boolean).slice(-limit);
+    const out: FeedbackEntry[] = [];
+    for (const line of lines) {
+      try {
+        out.push(JSON.parse(line) as FeedbackEntry);
+      } catch {
+        /* skip a malformed line */
+      }
+    }
+    return out.reverse();
+  } catch {
+    return [];
+  }
 }
 
 export async function recordFeedback(fb: Feedback): Promise<void> {
