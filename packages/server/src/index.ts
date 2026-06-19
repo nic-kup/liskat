@@ -12,7 +12,7 @@ import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback } from './feedback.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId } from './accounts.ts';
-import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, MATCH_TYPES, type MatchType } from './ratings.ts';
 import { Matchmaker } from './matchmaker.ts';
 import type { MatchFormat } from '@liskat/engine';
 
@@ -78,6 +78,16 @@ function bindTable(table: Table): void {
   };
 }
 
+// Leaving (or abandoning) a ranked game that's still in progress forfeits Elo.
+const LEAVE_PENALTY = 50;
+function forfeitIfRated(client: Client, table: Table | undefined): void {
+  if (!table || !table.rated) return;
+  if (table.status !== 'playing' && table.status !== 'between') return;
+  if (!client.id.startsWith('u_')) return; // anonymous players have no rating
+  const type = ratedType(table.format);
+  if (type) void applyPenalty(client.id, type, LEAVE_PENALTY);
+}
+
 // Maps a match format to one of the five rated types, or null if non-standard.
 function ratedType(format: MatchFormat): MatchType | null {
   const t = format.kind === 'deals' ? `deals-${format.deals}` : `race-${format.target}`;
@@ -116,6 +126,7 @@ function leaveTable(client: Client): void {
   send(client.ws, { t: 'left' });
   send(client.ws, { t: 'queues', counts: matchmaker.counts() });
   if (table) {
+    forfeitIfRated(client, table);
     table.removePlayer(client.id);
     broadcastTable(table);
     lobby.prune();
@@ -201,6 +212,7 @@ function dropClient(client: Client): void {
     const table = lobby.get(client.tableId);
     client.tableId = null;
     if (table) {
+      forfeitIfRated(client, table);
       table.removePlayer(client.id);
       broadcastTable(table);
       lobby.prune();

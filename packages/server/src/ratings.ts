@@ -110,6 +110,19 @@ export function historyFor(userId: string, limit = 50): MatchRecord[] {
   return mine.slice(-limit).reverse();
 }
 
+// Docks a player's rating for a match type (e.g. forfeiting a ranked game by
+// leaving mid-match). Floored so it can't go absurdly low. Returns points lost.
+export async function applyPenalty(userId: string, type: MatchType, amount: number): Promise<number> {
+  if (!MATCH_TYPES.includes(type)) return 0;
+  const e = ratingEntry(userId, type);
+  const after = Math.max(100, e.rating - amount);
+  const byType = ratings.get(userId) ?? {};
+  byType[type] = { rating: after, games: e.games };
+  ratings.set(userId, byType);
+  await saveRatings();
+  return e.rating - after;
+}
+
 // Records a finished, fully-accounted match: updates each player's rating for
 // the match type and appends a history entry. Returns the record (or null if
 // the inputs aren't ratable).

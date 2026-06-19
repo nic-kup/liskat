@@ -13,6 +13,17 @@
     localStorage.setItem('liskat.hints', hintsOpen ? 'open' : 'closed');
   }
 
+  let confirmLeave = $state(false);
+  // Leaving a rated game that's still in progress forfeits rating (only matters
+  // if you're logged in — anonymous players have no rating to lose).
+  const willForfeit = $derived(
+    !!$conn.account && (view?.rated ?? false) && (view?.status === 'playing' || view?.status === 'between'),
+  );
+  function onLeave() {
+    if (view?.status === 'over' || view?.status === 'waiting') leaveTable();
+    else confirmLeave = true;
+  }
+
   const view = $derived($conn.view as TableView);
   const round = $derived(view?.round);
   const mySlot = $derived(view?.youSlot ?? -1);
@@ -176,7 +187,7 @@
           <li><b>Null</b> — no trumps; you win by losing every trick</li>
           <li><b>Ouvert</b> — play with your hand face-up for a higher value. Null Ouvert is common; a suit/grand Ouvert must also be played (and announced) for Schwarz.</li>
         </ul>
-        <div class="hline"><b>Clock (⏱):</b> 10 seconds per move plus a personal time bank — 30s to start, +10s each deal. Spend longer than 10s and the extra comes out of your bank. Run the bank to zero and a random legal move is played for you (a pass during bidding).</div>
+        <div class="hline"><b>Clock (⏱):</b> 10 seconds per move plus a personal time bank<br>30s to start, +10s each deal.</div>
         <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
       </div>
     {/if}
@@ -186,7 +197,7 @@
 {#if view}
   <div class="table">
     <div class="topbar">
-      <button class="ghost" onclick={leaveTable}>← Leave</button>
+      <button class="ghost" onclick={onLeave}>← Leave</button>
       <span class="wordmark" style="font-weight:800; font-size:18px; color:#f2f5f3;">liskat</span>
       <div class="info">
         {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
@@ -405,6 +416,19 @@
     {/if}
 
     {#if $conn.error}<p class="error">{$conn.error}</p>{/if}
+
+    {#if confirmLeave}
+      <div class="overlay" role="presentation" onclick={() => (confirmLeave = false)}>
+        <div class="confirm" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+          <h3>Leave the game?</h3>
+          {#if willForfeit}<p class="warn">This is a ranked game — you will lose 50 rating if you leave.</p>{/if}
+          <div class="confirm-actions">
+            <button onclick={() => (confirmLeave = false)}>Stay</button>
+            <button class="danger" onclick={leaveTable}>Leave</button>
+          </div>
+        </div>
+      </div>
+    {/if}
   </div>
 {/if}
 
@@ -804,5 +828,43 @@
   .error {
     color: #ff8a80;
     text-align: center;
+  }
+  .overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 300;
+  }
+  .confirm {
+    background: #18382a;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    border-radius: 16px;
+    padding: 22px 24px;
+    width: min(360px, 92vw);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+    text-align: center;
+  }
+  .confirm h3 {
+    margin: 0 0 8px;
+  }
+  .warn {
+    color: #ffb74d;
+    font-size: 14px;
+    margin: 0 0 6px;
+  }
+  .confirm-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-top: 14px;
+  }
+  .danger {
+    background: #b00020;
+    border-color: #b00020;
+    color: #fff;
+    font-weight: 600;
   }
 </style>

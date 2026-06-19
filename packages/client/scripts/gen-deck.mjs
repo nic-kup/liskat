@@ -19,21 +19,26 @@ mkdirSync(outDir, { recursive: true });
 const SUITS = ['C', 'S', 'H', 'D'];
 const RANKS = ['7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
 
-const GLYPH = { C: '♣', S: '♠', H: '♥', D: '♦' };
 const COLOR = { C: '#1a1a1a', S: '#1f7a1f', H: '#d11', D: '#e6820a' };
 const FONT = "'DejaVu Sans','Arial Unicode MS','Segoe UI Symbol',sans-serif";
 
+// Suit pips drawn as SVG shapes (not Unicode glyphs) inside a 0..100 box, so
+// the OS can't swap them for colour emoji (iOS does) and they always take the
+// deck colour. Placed centred under the rank.
+const SUIT_SHAPE = {
+  H: '<path d="M50 86 C 18 64 4 46 4 28 C 4 15 14 6 26 6 C 36 6 44 12 50 22 C 56 12 64 6 74 6 C 86 6 96 15 96 28 C 96 46 82 64 50 86 Z"/>',
+  D: '<path d="M50 2 L94 50 L50 98 L6 50 Z"/>',
+  S: '<path d="M50 5 C 50 25 90 40 90 62 C 90 74 81 82 70 82 C 64 82 58 79 54 74 C 55 84 60 92 68 96 L32 96 C 40 92 45 84 46 74 C 42 79 36 82 30 82 C 19 82 10 74 10 62 C 10 40 50 25 50 5 Z"/>',
+  C: '<circle cx="50" cy="30" r="17"/><circle cx="29" cy="52" r="17"/><circle cx="71" cy="52" r="17"/><path d="M50 46 C 47 64 41 78 33 96 L67 96 C 59 78 53 64 50 46 Z"/>',
+};
+
 function cardSvg(suit, rank) {
   const color = COLOR[suit];
-  const g = GLYPH[suit];
-  // French-suited deck uses J/Q/K/A. (A German-suited deck would use B/D/K/A.)
-  // A single centered rank + suit symbol — no corner indices.
+  // French-suited deck uses J/Q/K/A. A single centred rank + suit pip.
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 250 350" font-family="${FONT}">
   <rect x="4" y="4" width="242" height="342" rx="20" ry="20" fill="#fffdf7" stroke="#d8d2c4" stroke-width="2"/>
-  <g fill="${color}" text-anchor="middle">
-    <text x="125" y="170" font-size="116" font-weight="700">${rank}</text>
-    <text x="125" y="292" font-size="104">${g}</text>
-  </g>
+  <text x="125" y="170" font-size="116" font-weight="700" fill="${color}" text-anchor="middle">${rank}</text>
+  <g transform="translate(75 198)" fill="${color}">${SUIT_SHAPE[suit]}</g>
 </svg>`;
 }
 
