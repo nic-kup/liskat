@@ -44,10 +44,10 @@
 <svelte:window onkeydown={onKey} />
 
 {#if account}
-  <button class="acct" onclick={() => ($page = 'account')} title="View your account">{account}</button>
-  <button class="link" onclick={logout}>Log out</button>
+  <button class="navlink name" onclick={() => ($page = 'account')} title="View your account">{account}</button>
+  <button class="navlink" onclick={logout}>Log out</button>
 {:else}
-  <button class="link" onclick={() => openModal('login')}>Log in</button>
+  <button class="navlink" onclick={() => openModal('login')}>Log in</button>
 {/if}
 
 {#if open}
@@ -83,29 +83,6 @@
 {/if}
 
 <style>
-  .acct {
-    font-weight: 700;
-    color: #f2f5f3;
-    background: none;
-    border: none;
-    cursor: pointer;
-    font-size: 14px;
-    padding: 0;
-  }
-  .acct:hover {
-    text-decoration: underline;
-  }
-  .link {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 14px;
-    padding: 0;
-  }
-  .link:hover {
-    color: #f2f5f3;
-  }
   .overlay {
     position: fixed;
     inset: 0;

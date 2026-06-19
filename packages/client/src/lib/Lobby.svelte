@@ -140,19 +140,6 @@
   .brand:hover {
     color: #ffa733 !important;
   }
-  .navlink {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 14px;
-    padding: 7px 12px;
-    border-radius: 8px;
-  }
-  .navlink:hover {
-    color: #f2f5f3;
-    background: rgba(255, 255, 255, 0.12);
-  }
   .topright {
     position: fixed;
     top: 20px;
@@ -243,7 +230,7 @@
     font-size: 15px;
     box-sizing: border-box;
   }
-  button {
+  button:not(.navlink) {
     padding: 10px 14px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -252,10 +239,10 @@
     font-size: 15px;
     cursor: pointer;
   }
-  button:hover:not(:disabled) {
+  button:not(.navlink):hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.16);
   }
-  button:disabled {
+  button:not(.navlink):disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }

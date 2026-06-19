@@ -27,6 +27,29 @@ button {
   font-family: inherit;
 }
 
+/* Shared look for the top-bar nav links (How to play, account name, Log in/out,
+   Send feedback) so they hover identically. Only the account name is bold. */
+.navlink {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1;
+  padding: 7px 12px;
+  border-radius: 8px;
+  text-decoration: none;
+}
+.navlink:hover {
+  color: #f2f5f3;
+  background: rgba(255, 255, 255, 0.12);
+}
+.navlink.name {
+  font-weight: 700;
+  color: #f2f5f3;
+}
+
 /* Narrow / phone layout. Chat is the least essential overlay, so hide it.
    History stays reachable (collapsed in the top-left), and the last trick moves
    to the top-right corner with compact cards instead of floating over play. */

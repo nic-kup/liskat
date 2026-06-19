@@ -44,7 +44,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<button class="link-btn" onclick={() => (open = true)}>Send feedback</button>
+<button class="navlink" onclick={() => (open = true)}>Send feedback</button>
 
 {#if open}
   <div class="overlay" onclick={close} role="presentation">
@@ -73,15 +73,6 @@
 {/if}
 
 <style>
-  .link-btn {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 0;
-    text-decoration: underline;
-  }
   .overlay {
     position: fixed;
     inset: 0;
@@ -131,7 +122,7 @@
     justify-content: flex-end;
     gap: 8px;
   }
-  button {
+  button:not(.navlink) {
     padding: 9px 14px;
     border-radius: 8px;
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -140,10 +131,10 @@
     font-size: 15px;
     cursor: pointer;
   }
-  button:hover:not(:disabled) {
+  button:not(.navlink):hover:not(:disabled) {
     background: rgba(255, 255, 255, 0.16);
   }
-  button:disabled {
+  button:not(.navlink):disabled {
     opacity: 0.4;
     cursor: not-allowed;
   }
