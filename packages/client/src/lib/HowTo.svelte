@@ -15,6 +15,60 @@
   const CLUB_TRUMPS = ['CJ', 'SJ', 'HJ', 'DJ', 'CA', 'C10', 'CK', 'CQ', 'C9', 'C8', 'C7'];
   const NULL_ORDER = ['HA', 'HK', 'HQ', 'HJ', 'H10', 'H9', 'H8', 'H7'];
   const SORTED_HAND = ['CJ', 'SJ', 'CA', 'C10', 'C7', 'SA', 'SK', 'HA', 'H9', 'DK'];
+
+  // --- interactive score calculator ---
+  const SUITS = [
+    { key: 'D', label: 'Diamonds', base: 9 },
+    { key: 'H', label: 'Hearts', base: 10 },
+    { key: 'S', label: 'Spades', base: 11 },
+    { key: 'C', label: 'Clubs', base: 12 },
+  ];
+  const JACK_IDS: Record<string, string> = { C: 'CJ', S: 'SJ', H: 'HJ', D: 'DJ' };
+  const JORDER = ['C', 'S', 'H', 'D']; // matador order, top first (J♣)
+
+  let game = $state<'suit' | 'grand' | 'null'>('suit');
+  let suit = $state('C');
+  let jacks = $state<Record<string, boolean>>({ C: true, S: true, H: false, D: false });
+  let hand = $state(false);
+  let schneider = $state(false);
+  let schneiderAnn = $state(false);
+  let schwarz = $state(false);
+  let schwarzAnn = $state(false);
+  let ouvert = $state(false);
+
+  function toggleJack(s: string) {
+    jacks = { ...jacks, [s]: !jacks[s] };
+  }
+
+  // Matadors from the run of Jacks held, counting from J♣ (the calculator
+  // models the Jacks; in a full game the run can continue into the trump suit).
+  const matadors = $derived.by(() => {
+    const withTop = jacks.C;
+    let n = 0;
+    for (const s of JORDER) {
+      if (jacks[s] === withTop) n++;
+      else break;
+    }
+    return { n, withTop };
+  });
+
+  const calc = $derived.by(() => {
+    if (game === 'null') {
+      const value = hand && ouvert ? 59 : ouvert ? 46 : hand ? 35 : 23;
+      return { isNull: true, value, label: 'Null' + (hand ? ' Hand' : '') + (ouvert ? ' Ouvert' : '') };
+    }
+    const base = game === 'grand' ? 24 : (SUITS.find((s) => s.key === suit)?.base ?? 12);
+    const parts = [{ label: 'matadors', n: matadors.n }, { label: 'game', n: 1 }];
+    if (hand) parts.push({ label: 'hand', n: 1 });
+    if (schneider) parts.push({ label: 'schneider', n: 1 });
+    if (schneiderAnn) parts.push({ label: 'schneider announced', n: 1 });
+    if (schwarz) parts.push({ label: 'schwarz', n: 1 });
+    if (schwarzAnn) parts.push({ label: 'schwarz announced', n: 1 });
+    if (ouvert) parts.push({ label: 'ouvert', n: 1 });
+    const mult = parts.reduce((a, p) => a + p.n, 0);
+    const name = game === 'grand' ? 'Grand' : (SUITS.find((s) => s.key === suit)?.label ?? '');
+    return { isNull: false, value: base * mult, base, mult, name, parts, withLabel: (matadors.withTop ? 'with ' : 'without ') + matadors.n };
+  });
 </script>
 
 {#snippet card(id: string)}
@@ -80,7 +134,72 @@
   </section>
 
   <section>
-    <h2>5. A match</h2>
+    <h2>5. Score calculator</h2>
+    <p>Pick a game, click the Jacks you hold, and toggle the extras to see the game value. Unselected Jacks are greyed out.</p>
+
+    <div class="calc">
+      <div class="calc-row">
+        <span class="calc-label">Game</span>
+        <div class="opts">
+          <button class:sel={game === 'suit'} onclick={() => (game = 'suit')}>Suit</button>
+          <button class:sel={game === 'grand'} onclick={() => (game = 'grand')}>Grand</button>
+          <button class:sel={game === 'null'} onclick={() => (game = 'null')}>Null</button>
+        </div>
+      </div>
+
+      {#if game === 'suit'}
+        <div class="calc-row">
+          <span class="calc-label">Trump suit</span>
+          <div class="opts">
+            {#each SUITS as s}
+              <button class:sel={suit === s.key} onclick={() => (suit = s.key)}>{s.label} · {s.base}</button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if game !== 'null'}
+        <div class="calc-row">
+          <span class="calc-label">Jacks you hold</span>
+          <div class="jacks">
+            {#each JORDER as s}
+              <button class="jackbtn" class:off={!jacks[s]} onclick={() => toggleJack(s)} aria-pressed={jacks[s]}>
+                <img src="/cards/french/{JACK_IDS[s]}.svg" alt={JACK_IDS[s]} />
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      <div class="calc-row">
+        <span class="calc-label">Extras</span>
+        <div class="opts">
+          <button class:sel={hand} onclick={() => (hand = !hand)}>Hand</button>
+          {#if game !== 'null'}
+            <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
+            <button class:sel={schneiderAnn} onclick={() => (schneiderAnn = !schneiderAnn)}>Schneider announced</button>
+            <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
+            <button class:sel={schwarzAnn} onclick={() => (schwarzAnn = !schwarzAnn)}>Schwarz announced</button>
+          {/if}
+          <button class:sel={ouvert} onclick={() => (ouvert = !ouvert)}>Ouvert</button>
+        </div>
+      </div>
+
+      <div class="calc-out">
+        <div class="calc-value">{calc.value}</div>
+        {#if calc.isNull}
+          <div class="calc-formula">{calc.label} = {calc.value}</div>
+        {:else}
+          <div class="calc-formula"><strong>{calc.name}</strong> · {calc.withLabel} matador{matadors.n === 1 ? '' : 's'}</div>
+          <div class="calc-formula">{calc.base} × {calc.mult} = {calc.value}</div>
+          <div class="calc-parts">multiplier {calc.mult} = {calc.parts.map((p) => p.label + ' ' + p.n).join(' + ')}</div>
+        {/if}
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>6. A match</h2>
     <p>A match is several deals with the deal rotating each time, so everyone takes a turn in each seat. Scores add up across the deals. You can play a set number of deals (6, 12 or 36) or race to a target score (250 or 1000).</p>
   </section>
 
@@ -90,6 +209,93 @@
 </div>
 
 <style>
+  .calc {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 16px 18px;
+    margin-top: 12px;
+  }
+  .calc-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  }
+  .calc-label {
+    flex: 0 0 110px;
+    color: var(--muted);
+    font-size: 13px;
+    padding-top: 7px;
+  }
+  .opts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .opts button {
+    padding: 7px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .opts button:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .opts button.sel {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .jacks {
+    display: flex;
+    gap: 8px;
+  }
+  .jackbtn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    line-height: 0;
+    border-radius: 6px;
+  }
+  .jackbtn img {
+    width: 52px;
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+    transition: opacity 0.12s, filter 0.12s, transform 0.12s;
+  }
+  .jackbtn:hover img {
+    transform: translateY(-3px);
+  }
+  .jackbtn.off img {
+    opacity: 0.32;
+    filter: grayscale(1);
+  }
+  .calc-out {
+    margin-top: 14px;
+    text-align: center;
+  }
+  .calc-value {
+    font-size: 44px;
+    font-weight: 800;
+    line-height: 1;
+    color: #ffd54a;
+  }
+  .calc-formula {
+    margin-top: 6px;
+    font-size: 15px;
+  }
+  .calc-parts {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--muted);
+  }
   .brand:hover {
     color: #ffa733 !important;
   }
