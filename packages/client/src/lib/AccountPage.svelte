@@ -95,7 +95,7 @@
       <p class="muted">Everyone passed — no game was played.</p>
     {:else}
       <p class="lead">
-        {@render mk(d.declarerSlot ?? 0)} <strong>{nameOf(d.declarerSlot ?? 0)}</strong> played {contractLabel(d.contract)}{d.ouvert ? ' Ouvert' : ''}
+        {@render mk(d.declarerSlot ?? 0)} <strong>{nameOf(d.declarerSlot ?? 0)}</strong> played {contractLabel(d.contract)}{d.ouvert ? ' Open' : ''}
         {#if d.result}
           <span class:win={d.result.won} class:lose={!d.result.won}> · {d.result.won ? 'won' : 'lost'} for {d.result.value}{d.contract?.type !== 'null' && d.result.cardPoints != null ? ` (${d.result.cardPoints} eyes)` : ''}{d.result.schneider ? ' · Schneider' : ''}{d.result.schwarz ? ' · Schwarz' : ''}</span>
         {/if}

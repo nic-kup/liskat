@@ -39,7 +39,11 @@
       .filter((p) => p.slot !== mySlot)
       .sort((a, b) => ((a.role - myRole + 3) % 3) - ((b.role - myRole + 3) % 3));
   });
-  const hand = $derived(round ? sortHand(round.yourHand, round.contract ?? undefined) : []);
+  const hand = $derived.by(() => {
+    if (!round) return [];
+    const sorted = sortHand(round.yourHand, round.contract ?? undefined);
+    return sortRev ? [...sorted].reverse() : sorted;
+  });
   const myIdentity = $derived(identityForSlot(mySlot));
   const timed = $derived(view?.timed ?? true);
   // The dealer is rearhand (role 2); a chip marks their seat.
@@ -94,13 +98,21 @@
   let selected = $state<string[]>([]);
   let annSchneider = $state(false);
   let annSchwarz = $state(false);
-  let annOuvert = $state(false);
+  let annOpen = $state(false);
 
   $effect(() => {
     view?.dealIndex;
     selected = [];
-    annSchneider = annSchwarz = annOuvert = false;
+    annSchneider = annSchwarz = annOpen = false;
   });
+
+  // Hand display order. Default puts the strongest cards (Jacks/trumps) on the
+  // left, the common convention; the toggle flips it. Persisted.
+  let sortRev = $state(localStorage.getItem('liskat.sortrev') !== '0');
+  function toggleSort() {
+    sortRev = !sortRev;
+    localStorage.setItem('liskat.sortrev', sortRev ? '1' : '0');
+  }
 
   const shareLink = $derived(view ? `${location.origin}/?table=${view.id}` : '');
 
@@ -143,11 +155,23 @@
   }
 
   function declare(contract: Contract) {
-    const ann =
-      contract.type === 'null'
-        ? { ouvert: annOuvert }
-        : { schneiderAnnounced: annSchneider, schwarzAnnounced: annSchwarz, ouvert: annOuvert };
-    declareContract(contract, ann);
+    // Null: Open is allowed with or without picking up the Skat.
+    if (contract.type === 'null') {
+      declareContract(contract, { ouvert: annOpen });
+      return;
+    }
+    // Suit/Grand: announcements are only possible in a Hand game (no Skat
+    // pickup). Open requires announced Schwarz, which requires announced
+    // Schneider, so fill the chain in.
+    if (round?.tookSkat) {
+      declareContract(contract, {});
+      return;
+    }
+    let sch = annSchneider;
+    let schw = annSchwarz;
+    if (annOpen) schw = true;
+    if (schw) sch = true;
+    declareContract(contract, { schneiderAnnounced: sch, schwarzAnnounced: schw, ouvert: annOpen });
   }
 
   function onCardClick(card: Card) {
@@ -186,7 +210,7 @@
           <li><b>Suit</b> — that suit plus all four Jacks are trumps</li>
           <li><b>Grand</b> — only the four Jacks are trumps</li>
           <li><b>Null</b> — no trumps; you win by losing every trick</li>
-          <li><b>Ouvert</b> — play with your hand face-up for a higher value. Null Ouvert is common; a suit/grand Ouvert must also be played (and announced) for Schwarz.</li>
+          <li><b>Open</b> — play with your hand face-up for a higher value. Null Open is common; a suit/Grand Open also needs a Hand game with announced Schwarz.</li>
         </ul>
         <div class="hline"><b>Clock (⏱):</b> 10 seconds per move plus a personal time bank<br>30s to start, +10s each deal.</div>
         <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
@@ -338,8 +362,9 @@
                     <label><input type="checkbox" bind:checked={annSchneider} /> Schneider</label>
                     <label><input type="checkbox" bind:checked={annSchwarz} /> Schwarz</label>
                   {/if}
-                  <label><input type="checkbox" bind:checked={annOuvert} /> Ouvert</label>
+                  <label><input type="checkbox" bind:checked={annOpen} /> Open</label>
                 </div>
+                <p class="annnote">Open: any time for Null. For a suit or Grand it needs a Hand game and counts as announced Schwarz.</p>
                 {@render hints()}
               {/if}
             </div>
@@ -373,6 +398,7 @@
           {#if round?.phase === 'playing' && isMyTurn()}
             <span class="turnhint active">your turn</span>
           {/if}
+          <button class="sortbtn" onclick={toggleSort} title="Reverse card order">⇄</button>
           <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
         </div>
         <div class="hand">
@@ -666,6 +692,25 @@
     gap: 14px;
     justify-content: center;
     margin: 8px 0;
+  }
+  .annnote {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 4px;
+  }
+  .sortbtn {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: var(--muted);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    padding: 4px 8px;
+  }
+  .sortbtn:hover {
+    background: rgba(255, 255, 255, 0.16);
+    color: #f2f5f3;
   }
   .hints {
     margin-top: 14px;

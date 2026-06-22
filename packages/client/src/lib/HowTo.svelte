@@ -40,6 +40,32 @@
     jacks = { ...jacks, [s]: !jacks[s] };
   }
 
+  // Keep the extras legal as you click them. Announcements need a Hand game;
+  // announced Schwarz implies announced Schneider; Open (in a suit/Grand) needs
+  // announced Schwarz. Null is exempt: Open works with or without Hand.
+  function setGame(g: 'suit' | 'grand' | 'null') {
+    game = g;
+    if (g === 'null') schneider = schwarz = schneiderAnn = schwarzAnn = false;
+  }
+  function setHand(v: boolean) {
+    hand = v;
+    if (!v && game !== 'null') schneiderAnn = schwarzAnn = ouvert = false;
+  }
+  function setSchneiderAnn(v: boolean) {
+    schneiderAnn = v;
+    if (v) hand = true;
+    else schwarzAnn = ouvert = false;
+  }
+  function setSchwarzAnn(v: boolean) {
+    schwarzAnn = v;
+    if (v) (schneiderAnn = true), (hand = true);
+    else ouvert = false;
+  }
+  function setOpen(v: boolean) {
+    ouvert = v;
+    if (v && game !== 'null') (schwarzAnn = true), (schneiderAnn = true), (hand = true);
+  }
+
   // Matadors from the run of Jacks held, counting from J♣ (the calculator
   // models the Jacks; in a full game the run can continue into the trump suit).
   const matadors = $derived.by(() => {
@@ -55,7 +81,7 @@
   const calc = $derived.by(() => {
     if (game === 'null') {
       const value = hand && ouvert ? 59 : ouvert ? 46 : hand ? 35 : 23;
-      return { isNull: true, value, label: 'Null' + (hand ? ' Hand' : '') + (ouvert ? ' Ouvert' : '') };
+      return { isNull: true, value, label: 'Null' + (hand ? ' Hand' : '') + (ouvert ? ' Open' : '') };
     }
     const base = game === 'grand' ? 24 : (SUITS.find((s) => s.key === suit)?.base ?? 12);
     const parts = [{ label: 'matadors', n: matadors.n }, { label: 'game', n: 1 }];
@@ -64,7 +90,7 @@
     if (schneiderAnn) parts.push({ label: 'schneider announced', n: 1 });
     if (schwarz) parts.push({ label: 'schwarz', n: 1 });
     if (schwarzAnn) parts.push({ label: 'schwarz announced', n: 1 });
-    if (ouvert) parts.push({ label: 'ouvert', n: 1 });
+    if (ouvert) parts.push({ label: 'open', n: 1 });
     const mult = parts.reduce((a, p) => a + p.n, 0);
     const name = game === 'grand' ? 'Grand' : (SUITS.find((s) => s.key === suit)?.label ?? '');
     return { isNull: false, value: base * mult, base, mult, name, parts, withLabel: (matadors.withTop ? 'with ' : 'without ') + matadors.n };
@@ -130,7 +156,13 @@
     <h2>4. Bidding</h2>
     <p>Before play, the three players bid to decide who becomes the declarer. Players call rising numbers: 18, 20, 22, 23, 24 and so on. Your number is a promise that your game will be worth at least that much.</p>
     <p>The highest bidder wins the auction and becomes the declarer. They may pick up the two cards in the Skat and then discard two, or play the hand as dealt. Then they name the game: a suit, Grand or Null.</p>
-    <p class="note">A game value is the base value times a multiplier that depends on how many top trumps (matadors) you hold, plus a few extras. You win if you take 61 eyes and your game is worth at least your bid.</p>
+
+    <h3>Matadors (with or without)</h3>
+    <p>A game value is the base value times a multiplier, and the multiplier starts from your "matadors". Matadors are the run of top trumps you hold without a gap, counting down from the strongest card, the Jack of Clubs.</p>
+    <div class="row">{#each JACKS as id}{@render card(id)}{/each}</div>
+    <p>If you hold the Jack of Clubs, you play "with" as many top trumps as you hold in an unbroken row. If you do not, you play "without" the top trumps you are missing in a row. The number is the same either way and is added to the multiplier.</p>
+    <p class="note">Example: holding ♣J and ♠J but not ♥J is "with 2". Holding no Jack at all is "without" however many you are missing from the top. (We count the Jacks here; in a suit game the run can continue into the trump suit: A, 10, K and so on.)</p>
+    <p class="note">So the multiplier is: matadors + 1 for the game itself, plus one more for each extra (Hand, Schneider, Schwarz, Open, and the announced versions). You win if you take 61 eyes and your game is worth at least your bid.</p>
   </section>
 
   <section>
@@ -141,9 +173,9 @@
       <div class="calc-row">
         <span class="calc-label">Game</span>
         <div class="opts">
-          <button class:sel={game === 'suit'} onclick={() => (game = 'suit')}>Suit</button>
-          <button class:sel={game === 'grand'} onclick={() => (game = 'grand')}>Grand</button>
-          <button class:sel={game === 'null'} onclick={() => (game = 'null')}>Null</button>
+          <button class:sel={game === 'suit'} onclick={() => setGame('suit')}>Suit</button>
+          <button class:sel={game === 'grand'} onclick={() => setGame('grand')}>Grand</button>
+          <button class:sel={game === 'null'} onclick={() => setGame('null')}>Null</button>
         </div>
       </div>
 
@@ -174,14 +206,14 @@
       <div class="calc-row">
         <span class="calc-label">Extras</span>
         <div class="opts">
-          <button class:sel={hand} onclick={() => (hand = !hand)}>Hand</button>
+          <button class:sel={hand} onclick={() => setHand(!hand)}>Hand</button>
           {#if game !== 'null'}
             <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
-            <button class:sel={schneiderAnn} onclick={() => (schneiderAnn = !schneiderAnn)}>Schneider announced</button>
+            <button class:sel={schneiderAnn} onclick={() => setSchneiderAnn(!schneiderAnn)}>Schneider announced</button>
             <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
-            <button class:sel={schwarzAnn} onclick={() => (schwarzAnn = !schwarzAnn)}>Schwarz announced</button>
+            <button class:sel={schwarzAnn} onclick={() => setSchwarzAnn(!schwarzAnn)}>Schwarz announced</button>
           {/if}
-          <button class:sel={ouvert} onclick={() => (ouvert = !ouvert)}>Ouvert</button>
+          <button class:sel={ouvert} onclick={() => setOpen(!ouvert)}>Open</button>
         </div>
       </div>
 
