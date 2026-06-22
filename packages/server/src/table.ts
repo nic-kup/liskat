@@ -8,7 +8,7 @@ import {
   createRound,
   applyAction,
   legalCards,
-  nextBid,
+  decideBotAction,
   deal,
   cardId,
   type MatchFormat,
@@ -430,26 +430,12 @@ export class Table {
     (this.botTimer as { unref?: () => void }).unref?.();
   }
 
-  // A bot's move: in the auction it competes at low values about half the time
-  // (so it sometimes wins and the human gets to defend), otherwise it passes.
-  // Once it's the declarer or in trick play it just plays a random legal move.
+  // A bot's move: the engine's heuristic bot decides across every phase (bidding,
+  // declaring, and trick play). If it ever declines to act, fall back to a random
+  // legal move so a turn can never stall.
   private botAction(slot: number): Action | null {
-    const r = this.round!;
     const role = roleOfSlot(slot, this.dealIndex);
-    if (r.phase === 'bidding') {
-      const b = r.bidding;
-      const compete = Math.random() < 0.5 && b.currentBid < 30;
-      if (b.awaiting === 'response') {
-        return compete ? { type: 'hold', seat: role } : { type: 'pass', seat: role };
-      }
-      // 'call' (asker raises) or 'forehand-decision' (forehand opens): bid or pass.
-      if (compete) {
-        const v = nextBid(b.currentBid);
-        if (v !== null) return { type: 'bid', seat: role, value: v };
-      }
-      return { type: 'pass', seat: role };
-    }
-    return this.randomAction(slot);
+    return decideBotAction(this.round!, role) ?? this.randomAction(slot);
   }
 
   // Drives automatic transitions: a completed trick is revealed briefly then

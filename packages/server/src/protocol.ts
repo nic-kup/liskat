@@ -12,6 +12,7 @@ export type ClientMessage =
   | { t: 'createTable'; visibility: 'private' | 'public'; format: MatchFormat; timed?: boolean }
   | { t: 'joinTable'; tableId: string }
   | { t: 'quickMatch'; format?: MatchFormat }
+  | { t: 'practiceMatch'; format?: MatchFormat } // start a solo game against two bots
   | { t: 'cancelMatch' }
   | { t: 'leaveTable' }
   | { t: 'listTables' }

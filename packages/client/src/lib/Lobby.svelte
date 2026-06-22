@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { conn, setNick, quickMatch, cancelMatch, createTable, joinTable } from './ws.ts';
+  import { conn, setNick, quickMatch, practiceMatch, cancelMatch, createTable, joinTable } from './ws.ts';
   import type { MatchFormat } from './types.ts';
   import Feedback from './Feedback.svelte';
   import Account from './Account.svelte';
@@ -38,6 +38,10 @@
   function onQuick(format: MatchFormat) {
     ensureNick();
     quickMatch(format);
+  }
+  function onPractice() {
+    ensureNick();
+    practiceMatch({ kind: 'deals', deals: 3 });
   }
   function onCreatePrivate() {
     if (!account) {
@@ -85,6 +89,11 @@
           <span class="queue">{n} in queue</span>
         </button>
       {/each}
+      <button class="qbtn practice" onclick={onPractice}>
+        <span class="big">Practice</span>
+        <span class="sub">vs bots</span>
+        <span class="queue">play now · unrated</span>
+      </button>
     </div>
   </section>
 
@@ -200,6 +209,15 @@
   .qbtn:hover {
     background: var(--accent);
     transform: translateY(-2px);
+  }
+  /* The practice tile is the odd one out (instant, vs bots): tint it so it
+     reads as a different kind of action from the matchmaking tiles. */
+  .qbtn.practice {
+    border-color: rgba(255, 167, 51, 0.45);
+    background: rgba(255, 167, 51, 0.12);
+  }
+  .qbtn.practice:hover {
+    background: rgba(255, 167, 51, 0.28);
   }
   .qbtn .big {
     font-size: 20px;

@@ -7,3 +7,4 @@ export * from './scoring.ts';
 export * from './round.ts';
 export * from './match.ts';
 export * from './chat.ts';
+export * from './bot.ts';

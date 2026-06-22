@@ -29,6 +29,7 @@ process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e))
 
 const DEFAULT_FORMAT: MatchFormat = { kind: 'deals', deals: 12 };
 const TEST_FORMAT: MatchFormat = { kind: 'deals', deals: 6 }; // short admin test game vs bots
+const PRACTICE_FORMAT: MatchFormat = { kind: 'deals', deals: 3 }; // one dealing cycle vs bots
 const matchmaker = new Matchmaker();
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -151,21 +152,47 @@ function removeIfDeadBotTable(table: Table): void {
   if (table.isBotTable() && !table.hasHuman()) lobby.remove(table.id);
 }
 
-// Creates an unlisted table seated with two random-move bots for an admin to
-// join as the third player and try the playing interface. Not rated; auto-
-// removed if nobody joins within a couple of minutes.
-function createTestGame(): Table {
-  const table = lobby.create('private', TEST_FORMAT);
+// Fun, rotating names for the practice bots.
+const BOT_NAMES = ['Botleby', 'Clankworth', 'Tin Tessa', 'Cogsworth', 'Ada Byte', 'Rusty', 'Dealer Drone', 'Skatatron'];
+function pickBotNames(): [string, string] {
+  const i = Math.floor(Math.random() * BOT_NAMES.length);
+  let j = Math.floor(Math.random() * (BOT_NAMES.length - 1));
+  if (j >= i) j += 1; // ensure two distinct names
+  return [BOT_NAMES[i], BOT_NAMES[j]];
+}
+
+// Creates an unlisted, never-rated table seated with two heuristic bots, then
+// runs `seat` to add the human (last, so the match auto-starts at three seated).
+// Auto-removed if nobody joins within a couple of minutes.
+function createBotTable(format: MatchFormat, seat: (t: Table) => void): Table {
+  const table = lobby.create('private', format);
   table.timed = true;
+  // table.rated stays false — bot games never count toward Elo or history.
   bindTable(table);
-  table.addBot('Botleby');
-  table.addBot('Clankworth');
+  const [a, b] = pickBotNames();
+  table.addBot(a);
+  table.addBot(b);
+  seat(table);
   const cleanup = setTimeout(() => {
     const t = lobby.get(table.id);
     if (t && t.status === 'waiting') lobby.remove(table.id); // human never showed up
   }, 120_000);
   cleanup.unref?.();
   return table;
+}
+
+// Admin test game: bots wait for the admin to join via the returned table id.
+function createTestGame(): Table {
+  return createBotTable(TEST_FORMAT, () => {});
+}
+
+// Practice game: seats the requesting player immediately against two bots.
+function startPracticeGame(client: Client, format: MatchFormat): void {
+  if (client.tableId) leaveTable(client);
+  const table = createBotTable(format, (t) => {
+    if (t.addPlayer(client.id, client.nick)) client.tableId = t.id;
+  });
+  broadcastTable(table);
 }
 
 function formatKeyOf(format: MatchFormat): string {
@@ -367,6 +394,11 @@ function handle(client: Client, msg: ClientMessage): void {
 
     case 'quickMatch':
       enqueueClient(client, msg.format ?? DEFAULT_FORMAT);
+      return;
+
+    case 'practiceMatch':
+      matchmaker.dequeue(client.id); // a practice game supersedes any pending search
+      startPracticeGame(client, msg.format ?? PRACTICE_FORMAT);
       return;
 
     case 'cancelMatch':

@@ -13,7 +13,7 @@ import type { Seat } from './types.ts';
 import { sessionDelta, type GameValueResult } from './scoring.ts';
 
 export type MatchFormat =
-  | { kind: 'deals'; deals: 6 | 12 | 36 }
+  | { kind: 'deals'; deals: 3 | 6 | 12 | 36 } // 3 = a single dealing cycle, used for practice
   | { kind: 'race'; target: 250 | 1000 };
 
 export interface MatchState {

@@ -318,6 +318,11 @@ export function quickMatch(format?: MatchFormat): void {
   send({ t: 'quickMatch', format });
 }
 
+// Start a solo practice game against two bots (unrated, no queue).
+export function practiceMatch(format?: MatchFormat): void {
+  send({ t: 'practiceMatch', format });
+}
+
 export function cancelMatch(): void {
   send({ t: 'cancelMatch' });
 }
