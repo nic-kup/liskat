@@ -20,10 +20,10 @@
   // --- interactive score calculator ---
   // Base values come from the engine so they can't drift from real scoring.
   const SUITS = [
-    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D },
-    { key: 'H', label: 'Hearts', base: SUIT_BASE.H },
-    { key: 'S', label: 'Spades', base: SUIT_BASE.S },
-    { key: 'C', label: 'Clubs', base: SUIT_BASE.C },
+    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D, sym: '♦', red: true },
+    { key: 'H', label: 'Hearts', base: SUIT_BASE.H, sym: '♥', red: true },
+    { key: 'S', label: 'Spades', base: SUIT_BASE.S, sym: '♠', red: false },
+    { key: 'C', label: 'Clubs', base: SUIT_BASE.C, sym: '♣', red: false },
   ];
   const JACK_IDS: Record<string, string> = { C: 'CJ', S: 'SJ', H: 'HJ', D: 'DJ' };
   const JORDER = ['C', 'S', 'H', 'D']; // matador order, top first (J♣)
@@ -227,22 +227,13 @@
       <div class="calc-row">
         <span class="calc-label">Game</span>
         <div class="opts">
-          <button class:sel={game === 'suit'} onclick={() => setGame('suit')}>Suit</button>
+          {#each SUITS as s}
+            <button class="suitopt" class:red={s.red} class:sel={game === 'suit' && suit === s.key} onclick={() => { setGame('suit'); suit = s.key; }} aria-label={s.label}>{s.sym}</button>
+          {/each}
           <button class:sel={game === 'grand'} onclick={() => setGame('grand')}>Grand</button>
           <button class:sel={game === 'null'} onclick={() => setGame('null')}>Null</button>
         </div>
       </div>
-
-      {#if game === 'suit'}
-        <div class="calc-row">
-          <span class="calc-label">Trump suit</span>
-          <div class="opts">
-            {#each SUITS as s}
-              <button class:sel={suit === s.key} onclick={() => (suit = s.key)}>{s.label} · {s.base}</button>
-            {/each}
-          </div>
-        </div>
-      {/if}
 
       {#if game !== 'null'}
         <div class="calc-row">
@@ -351,6 +342,18 @@
     border-color: var(--accent);
     color: #fff;
     font-weight: 600;
+  }
+  .opts button.suitopt {
+    font-size: 19px;
+    line-height: 1;
+    padding: 7px 13px;
+    min-width: 44px;
+  }
+  .opts button.suitopt.red {
+    color: #ff6b6b;
+  }
+  .opts button.suitopt.red.sel {
+    color: #fff;
   }
   .jacks {
     display: flex;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable } from './ws.ts';
-  import { cardId, nextBid, sortHand, countMatadors, previewGameValue } from '@liskat/engine';
+  import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
   import Chat from './Chat.svelte';
@@ -103,6 +103,14 @@
   // The game the declarer is trying out before committing with [Declare].
   let selGame = $state<'' | 'suit' | 'grand' | 'null'>('');
   let selSuit = $state<'C' | 'S' | 'H' | 'D'>('C');
+
+  // Suit picker glyphs (red for ♦♥, dark for ♠♣) for the game chooser.
+  const SUIT_GLYPHS: { k: 'D' | 'H' | 'S' | 'C'; sym: string; name: string; red: boolean }[] = [
+    { k: 'D', sym: '♦', name: 'Diamonds', red: true },
+    { k: 'H', sym: '♥', name: 'Hearts', red: true },
+    { k: 'S', sym: '♠', name: 'Spades', red: false },
+    { k: 'C', sym: '♣', name: 'Clubs', red: false },
+  ];
 
   $effect(() => {
     view?.dealIndex;
@@ -229,6 +237,24 @@
   });
 
   const canDeclare = $derived(!!selGame);
+
+  // If the chosen game is worth less than the bid, the second line of the
+  // warning: what the declarer must still achieve in play to cover the bid.
+  // (Null can't be raised by play; suit/Grand can earn Schneider/Schwarz.)
+  const bidWarning = $derived.by<string | null>(() => {
+    if (!round || !declContract || declValue >= round.bid) return null;
+    if (declContract.type === 'null') {
+      return annOpen ? 'A Null this size can’t be raised — pick another game.' : 'A Null can’t be raised in play — declare Open or pick another game.';
+    }
+    const base = baseValue(declContract);
+    const gap = Math.ceil(round.bid / base) - Math.round(declValue / base);
+    const schneiderOpen = !annSchneider; // making 90+ would add a multiplier
+    const schwarzOpen = !annSchwarz; // taking every trick would add a multiplier
+    if (gap <= 1 && schneiderOpen) return 'You need at least Schneider (90+ card points) to cover it.';
+    if (gap <= 1 && schwarzOpen) return 'You need at least Schwarz (every trick) to cover it.';
+    if (gap <= 2 && schneiderOpen && schwarzOpen) return 'You need Schwarz (every trick) to cover it.';
+    return 'Even winning every trick won’t cover it — pick a higher game.';
+  });
 
   function confirmDeclare() {
     if (declContract) declare(declContract);
@@ -411,18 +437,12 @@
                 <h3>Choose your game</h3>
                 <div class="dchoose">
                   <div class="drow">
-                    <button class:dsel={selGame === 'suit'} onclick={() => (selGame = 'suit')}>Suit</button>
+                    {#each SUIT_GLYPHS as s}
+                      <button class="suitbtn" class:red={s.red} class:dsel={selGame === 'suit' && selSuit === s.k} onclick={() => { selGame = 'suit'; selSuit = s.k; }} aria-label={s.name}>{s.sym}</button>
+                    {/each}
                     <button class:dsel={selGame === 'grand'} onclick={() => (selGame = 'grand')}>Grand</button>
                     <button class:dsel={selGame === 'null'} onclick={() => (selGame = 'null')}>Null</button>
                   </div>
-                  {#if selGame === 'suit'}
-                    <div class="drow">
-                      <button class:dsel={selSuit === 'D'} onclick={() => (selSuit = 'D')}>Diamonds · 9</button>
-                      <button class:dsel={selSuit === 'H'} onclick={() => (selSuit = 'H')}>Hearts · 10</button>
-                      <button class:dsel={selSuit === 'S'} onclick={() => (selSuit = 'S')}>Spades · 11</button>
-                      <button class:dsel={selSuit === 'C'} onclick={() => (selSuit = 'C')}>Clubs · 12</button>
-                    </div>
-                  {/if}
                   {#if selGame === 'null'}
                     <div class="drow">
                       <button class:dsel={annOpen} onclick={() => annSetOpen(!annOpen)}>Open</button>
@@ -440,7 +460,7 @@
                       <span class="dval">{declValue}</span>
                       {#if selGame !== 'null'}<span class="dmeta">{declMatadors.withTop ? 'with' : 'without'} {declMatadors.n} matador{declMatadors.n === 1 ? '' : 's'}</span>{/if}
                     </div>
-                    {#if declValue < round.bid}<p class="annnote warn">Below your bid of {round.bid} — you would need the Skat or Schneider/Schwarz to cover it.</p>{/if}
+                    {#if bidWarning}<p class="annnote warn"><b>Below your bid {round.bid}</b><br />{bidWarning}</p>{/if}
                     <button class="primary declare" onclick={confirmDeclare}>Declare</button>
                   {:else}
                     <p class="prompt muted">Pick a game to see its value.</p>
@@ -768,6 +788,18 @@
     border-color: var(--accent);
     color: #fff;
     font-weight: 600;
+  }
+  .drow button.suitbtn {
+    font-size: 20px;
+    line-height: 1;
+    padding: 8px 14px;
+    min-width: 46px;
+  }
+  .drow button.suitbtn.red {
+    color: #ff6b6b;
+  }
+  .drow button.suitbtn.red.dsel {
+    color: #fff;
   }
   .dvalue {
     display: flex;
