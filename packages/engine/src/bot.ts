@@ -7,12 +7,16 @@
 // skat discard). It does not peek at the opponents' hands, so it plays fair.
 //
 // The bidding and play heuristics follow common club-level guidance:
-//  - bid a suit game with 6+ trumps (or 5 trumps + a side ace); a grand with
-//    3 jacks (or 2 jacks + 2 aces); a null with a hand full of low cards.
+//  - bid a suit game with 6+ trumps (or 5 trumps with strong support: two side
+//    aces, or a side ace and two jacks); a grand only with real top-card power
+//    (three jacks and an ace, or two jacks with three aces and the club jack); a
+//    null with a hand full of low cards and no ace.
 //  - as declarer, draw the opponents' trumps first; cash side aces afterwards.
-//  - as a defender, only "break in" (trump in / overtake) with enough trumps or
-//    when the trick is already worth something; otherwise duck low, and give
-//    your partner points ("schmieren") when it is safe to do so.
+//  - as a defender on lead, cash your winners (side aces, and tens once their ace
+//    is gone), and when your partner sits behind the declarer lead a king/queen up
+//    to them; otherwise only "break in" (trump in / overtake) with enough trumps
+//    or when the trick is already worth something, ducking low the rest of the
+//    time and giving your partner points ("schmieren") when it is safe to do so.
 
 import type { Card, Contract, Seat, Suit } from './types.ts';
 import { SUITS } from './types.ts';
@@ -63,15 +67,21 @@ function evaluate(hand: Card[]): GamePlan | null {
     const contract: Contract = { type: 'suit', suit };
     const trumps = hand.filter((c) => isTrump(c, contract)).length;
     const sideAces = hand.filter((c) => c.rank === 'A' && c.suit !== suit).length;
-    if (trumps >= 6 || (trumps === 5 && sideAces >= 1)) {
+    const jacks = hand.filter((c) => c.rank === 'J').length;
+    if (trumps >= 6 || (trumps === 5 && (sideAces >= 2 || (sideAces >= 1 && jacks >= 2)))) {
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
   }
 
   {
+    // Grand lives on jacks and aces. Three jacks plus an ace is a sound grand;
+    // with only two jacks you need a fistful of aces behind them (the opponents
+    // hold the other two jacks, so thin grands go down) — and the top jack (clubs)
+    // to be sure of the trump lead. Jack-rich but ace-poor hands go down too often.
     const jacks = hand.filter((c) => c.rank === 'J').length;
     const aces = hand.filter((c) => c.rank === 'A').length;
-    if (jacks >= 3 || (jacks >= 2 && aces >= 2)) {
+    const hasClubJack = hand.some((c) => c.rank === 'J' && c.suit === 'C');
+    if ((jacks >= 3 && aces >= 1) || (jacks >= 2 && aces >= 3 && hasClubJack)) {
       const contract: Contract = { type: 'grand' };
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
@@ -85,8 +95,8 @@ function evaluate(hand: Card[]): GamePlan | null {
     const aces = hand.filter((c) => c.rank === 'A').length;
     const contract: Contract = { type: 'null' };
     if (aces === 0) {
-      if (lows >= 7) plans.push({ contract, value: gameValue(contract, hand, true), hand: true });
-      else if (lows >= 6) plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
+      if (lows >= 8) plans.push({ contract, value: gameValue(contract, hand, true), hand: true });
+      else if (lows >= 7) plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
   }
 
@@ -235,7 +245,7 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
       }
       return cashOrDump(hand, contract);
     }
-    return leadAsDefender(hand, contract);
+    return leadAsDefender(s, seat, hand, contract);
   }
 
   // ---- Following a trick ----
@@ -281,16 +291,50 @@ function cashOrDump(hand: Card[], contract: Contract): Card {
   return lowCard(nonTrumps, contract);
 }
 
-// Defender on lead: cash a side ace, never open trumps, otherwise lead low.
-function leadAsDefender(hand: Card[], contract: Contract): Card {
+// Defender on lead. Two ideas drive the choice:
+//   - When our partner sits BEHIND the declarer (the declarer plays middlehand,
+//     our partner plays last), lead an honour up to them — a king or queen in a
+//     side suit whose ace or ten is still out. That forces the declarer to spend
+//     a top card or lets our partner win/schmier over them, while we keep our own
+//     ace back.
+//   - Otherwise cash: lead a side ace, or a ten that has become master (its ace
+//     is gone), and never open trumps for the declarer. Failing that, lead low.
+function leadAsDefender(s: RoundState, seat: Seat, hand: Card[], contract: Contract): Card {
   const nonTrumps = hand.filter((c) => !isTrump(c, contract));
-  if (nonTrumps.length === 0) return cheapest(hand, contract);
+  if (nonTrumps.length === 0) return cheapest(hand, contract); // only trumps left
+
+  const played = playedCards(s);
+  const acePlayed = (suit: Suit) => played.some((c) => c.suit === suit && c.rank === 'A');
+  const tenPlayed = (suit: Suit) => played.some((c) => c.suit === suit && c.rank === '10');
+
+  // Push your winners first: cash a side ace, or a ten that has become master
+  // (its ace is gone). Banking these points before the declarer can trump them is
+  // the bread-and-butter of defence.
   const ace = nonTrumps.find((c) => c.rank === 'A');
   if (ace) return ace;
+  const masterTen = nonTrumps.find((c) => c.rank === '10' && acePlayed(c.suit));
+  if (masterTen) return masterTen;
+
+  // No winner to cash. If our partner sits BEHIND the declarer (declarer plays
+  // middlehand, partner plays last), lead an honour up to them — a king or queen
+  // in a side suit whose ace or ten is still live — rather than a dead low card.
+  // It pressures the declarer's top cards and lets our partner win or schmier
+  // over them. Prefer the king over the queen.
+  const partnerBehindDeclarer = s.declarer !== null && s.declarer === ((seat + 1) % 3);
+  if (partnerBehindDeclarer) {
+    const honours = nonTrumps.filter((c) => (c.rank === 'K' || c.rank === 'Q') && (!acePlayed(c.suit) || !tenPlayed(c.suit)));
+    if (honours.length) return honours.sort((a, b) => cardStrength(b, contract) - cardStrength(a, contract))[0];
+  }
   return lowCard(nonTrumps, contract);
 }
 
 // ---- Small helpers ---------------------------------------------------------
+
+// Every card played to a trick so far this deal (both point piles plus the
+// trick in progress). The face-down skat is excluded — a defender can't see it.
+function playedCards(s: RoundState): Card[] {
+  return [...s.declarerTrickPoints, ...s.defenderTrickPoints, ...s.trick.map((t) => t.card)];
+}
 
 // Would playing `card` win the trick as it stands?
 function wouldWin(trickCards: Card[], card: Card, contract: Contract): boolean {

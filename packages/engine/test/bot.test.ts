@@ -63,19 +63,27 @@ test('three bots play many full deals to completion without illegal moves', () =
   }
 });
 
-test('bots win a fair share of the deals they declare', () => {
+test('bots declare disciplined games: ~two-thirds win rate, grand not over-played', () => {
   let declared = 0;
   let won = 0;
+  let grand = 0;
+  let suit = 0;
   for (let seed = 1; seed <= 300; seed++) {
     const r = playOut(seed);
-    if (!r.passedIn && r.result) {
-      declared++;
-      if (r.result.won) won++;
-    }
+    if (r.passedIn || !r.result) continue;
+    declared++;
+    if (r.result.won) won++;
+    if (r.contract!.type === 'grand') grand++;
+    else if (r.contract!.type === 'suit') suit++;
   }
   assert.ok(declared > 50, `expected plenty of contested deals, got ${declared}`);
-  // A decent bot should make most of the games it chooses to declare.
-  assert.ok(won / declared > 0.5, `declarer win rate too low: ${won}/${declared}`);
+  // The bot should only declare games it can usually make — a good rule of thumb
+  // is around a two-thirds win rate (disciplined, but not so picky it never bids).
+  const winRate = won / declared;
+  assert.ok(winRate > 0.55 && winRate < 0.78, `declarer win rate out of band: ${won}/${declared} = ${winRate.toFixed(3)}`);
+  // Grand should not dominate the mix — a grand needs real jack/ace power, so most
+  // declared games are suit games (the old bot bid grand on nearly everything).
+  assert.ok(grand < suit, `grand over-played: ${grand} grands vs ${suit} suit games`);
 });
 
 test('every card a bot plays is legal', () => {
