@@ -52,6 +52,71 @@
     const inHand = round?.yourHand?.some((c) => cardId(c) === cardId(pending!));
     if (!inHand || !isMyTurn()) pending = null;
   });
+  // The trick we actually render. Normally this mirrors the server's trick, but a
+  // completed (3-card) trick is held on screen for at least MIN_TRICK_HOLD_MS so
+  // it can't flash past when the server sweeps it — e.g. a trick a bot completes,
+  // which (unlike one you play optimistically) only appears once the server sends
+  // it. Released early the moment you play your own next card.
+  const MIN_TRICK_HOLD_MS = 600;
+  let displayTrick = $state<{ slot: number; card: Card }[]>([]);
+  // Hold bookkeeping kept in plain (non-reactive) locals so the effect only ever
+  // *writes* displayTrick — reading it back would make the effect depend on its
+  // own output and loop (a fresh `[]` always compares unequal).
+  let heldFull = false; // is the rendered trick a held, completed (3-card) one?
+  let fullTrickAt = 0; // when the rendered trick reached 3 cards
+  let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+  $effect(() => {
+    const serverTrick = round?.phase === 'playing' ? round.trick.map((x) => ({ slot: x.slot, card: x.card })) : [];
+    // Mid-play (your optimistic card on the board): mirror the other players'
+    // cards and let the template overlay your pending card. Cancel any hold —
+    // a fresh trick context is active.
+    if (pending) {
+      if (releaseTimer) {
+        clearTimeout(releaseTimer);
+        releaseTimer = null;
+      }
+      heldFull = false;
+      displayTrick = serverTrick;
+      return;
+    }
+    if (serverTrick.length > 0) {
+      if (releaseTimer) {
+        clearTimeout(releaseTimer);
+        releaseTimer = null;
+      }
+      if (serverTrick.length === 3) {
+        if (!heldFull) {
+          heldFull = true;
+          fullTrickAt = Date.now();
+        }
+      } else {
+        heldFull = false;
+      }
+      displayTrick = serverTrick;
+      return;
+    }
+    // The server swept the trick. If a full trick has been on screen for less
+    // than the minimum, keep showing it until the hold elapses.
+    if (heldFull) {
+      const remaining = fullTrickAt + MIN_TRICK_HOLD_MS - Date.now();
+      if (remaining > 0) {
+        if (releaseTimer) clearTimeout(releaseTimer);
+        releaseTimer = setTimeout(() => {
+          displayTrick = [];
+          heldFull = false;
+          releaseTimer = null;
+        }, remaining);
+        return;
+      }
+      heldFull = false;
+    }
+    displayTrick = [];
+  });
+  // Clear a pending trick-release timer if the table is torn down mid-hold (e.g.
+  // leaving the game) so it can't fire after the component is gone.
+  $effect(() => () => {
+    if (releaseTimer) clearTimeout(releaseTimer);
+  });
   const timed = $derived(view?.timed ?? true);
   // The dealer is rearhand (role 2); a chip marks their seat.
   const dealerSlot = $derived(view?.players.find((p) => p.role === 2)?.slot ?? -1);
@@ -552,9 +617,9 @@
           <div class="trickboard">
             {#each [{ pos: 'left', slot: opponents[0]?.slot }, { pos: 'right', slot: opponents[1]?.slot }, { pos: 'me', slot: mySlot }] as p}
               {@const id = identityForSlot(p.slot ?? 0)}
-              {@const serverCard = p.slot != null ? round.trick.find((x) => x.slot === p.slot) : undefined}
-              {@const t = serverCard ?? (p.slot === mySlot && pending ? { slot: mySlot, card: pending } : undefined)}
-              <div class="slot {p.pos}" class:lead={!t && round.trick.length === 0 && round.turnSlot === p.slot}>
+              {@const shown = p.slot != null ? displayTrick.find((x) => x.slot === p.slot) : undefined}
+              {@const t = shown ?? (p.slot === mySlot && pending ? { slot: mySlot, card: pending } : undefined)}
+              <div class="slot {p.pos}" class:lead={!t && displayTrick.length === 0 && round.turnSlot === p.slot}>
                 <div class="slot-card" class:filled={!!t} style="--c:{id.color}">
                   {#if t}<CardView card={t.card} fill />{/if}
                 </div>
