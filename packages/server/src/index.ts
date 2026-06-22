@@ -722,7 +722,18 @@ const heartbeatTimer = setInterval(() => {
   for (const ws of wss.clients) {
     const w = ws as unknown as Keepalive;
     if (w.isAlive === false) {
-      ws.terminate(); // missed the previous ping — it's gone
+      // Missed the previous ping — it's gone. Under Bun (our runtime) ws's
+      // terminate() can throw on an already-torn-down socket, so guard it and
+      // fall back to close(); never let heartbeat cleanup crash the loop.
+      try {
+        ws.terminate();
+      } catch {
+        try {
+          ws.close();
+        } catch {
+          /* already gone */
+        }
+      }
       continue;
     }
     w.isAlive = false;
