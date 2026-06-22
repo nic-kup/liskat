@@ -28,6 +28,7 @@ process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
 
 const DEFAULT_FORMAT: MatchFormat = { kind: 'deals', deals: 12 };
+const TEST_FORMAT: MatchFormat = { kind: 'deals', deals: 6 }; // short admin test game vs bots
 const matchmaker = new Matchmaker();
 
 const PORT = Number(process.env.PORT ?? 8080);
@@ -109,6 +110,7 @@ function ratedType(format: MatchFormat): MatchType | null {
 // accounts. Anonymous seats or aborted (someone-left) matches are not rated.
 const ratedTables = new Set<string>();
 function maybeRecordMatch(table: Table): void {
+  if (table.isBotTable()) return; // admin test games never touch ratings or history
   if (table.status !== 'over' || !table.match?.finished || ratedTables.has(table.id)) return;
   ratedTables.add(table.id); // mark first so we never double-record
   const seats = table.seats;
@@ -143,6 +145,29 @@ function pruneTables(): void {
   for (const id of lobby.prune()) ratedTables.delete(id);
 }
 
+// Removes an admin test game once its only human has left, so two bots aren't
+// left sitting at an abandoned table forever (it would never be "empty").
+function removeIfDeadBotTable(table: Table): void {
+  if (table.isBotTable() && !table.hasHuman()) lobby.remove(table.id);
+}
+
+// Creates an unlisted table seated with two random-move bots for an admin to
+// join as the third player and try the playing interface. Not rated; auto-
+// removed if nobody joins within a couple of minutes.
+function createTestGame(): Table {
+  const table = lobby.create('private', TEST_FORMAT);
+  table.timed = true;
+  bindTable(table);
+  table.addBot('Botleby');
+  table.addBot('Clankworth');
+  const cleanup = setTimeout(() => {
+    const t = lobby.get(table.id);
+    if (t && t.status === 'waiting') lobby.remove(table.id); // human never showed up
+  }, 120_000);
+  cleanup.unref?.();
+  return table;
+}
+
 function formatKeyOf(format: MatchFormat): string {
   return format.kind === 'deals' ? `deals-${format.deals}` : `race-${format.target}`;
 }
@@ -168,6 +193,7 @@ function leaveTable(client: Client): void {
     table.removePlayer(client.id);
     broadcastTable(table);
     pruneTables();
+    removeIfDeadBotTable(table);
   }
   broadcastLobby();
 }
@@ -254,6 +280,7 @@ function dropClient(client: Client): void {
       table.removePlayer(client.id);
       broadcastTable(table);
       pruneTables();
+      removeIfDeadBotTable(table);
     }
     broadcastLobby();
   }
@@ -593,6 +620,19 @@ async function handleStats(req: IncomingMessage, res: ServerResponse): Promise<v
   json(200, { ...gatherStats(), feedback: await readFeedback(100) });
 }
 
+// Spins up a bot test game and returns its table id for the admin to join.
+function handleTestGame(req: IncomingMessage, res: ServerResponse): void {
+  const json = (status: number, body: object) => {
+    res.writeHead(status, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body));
+  };
+  if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled — set ADMIN_TOKEN' });
+  const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
+  if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
+  const table = createTestGame();
+  json(200, { ok: true, tableId: table.id });
+}
+
 // Self-contained monitoring dashboard served at /admin. Prompts for the admin
 // key, stores it locally, then polls /stats every 5s. No backticks / ${} inside
 // so it stays a plain template literal.
@@ -613,7 +653,9 @@ const ADMIN_HTML = [
   '</style></head><body>',
   '<h1>liskat monitor</h1><p class="muted" id="sub">live server stats</p>',
   '<div id="login" style="display:none;margin-top:16px"><p>Admin key</p><input id="key" type="password" autocomplete="off"> <button onclick="saveKey()">View</button><p id="err"></p></div>',
-  '<div id="dash" style="display:none"><div class="grid" id="cards"></div><h2>Active games</h2>',
+  '<div id="dash" style="display:none"><div class="grid" id="cards"></div>',
+  '<p style="margin:18px 0 0"><button onclick="testgame()">▶ Start test game vs 2 bots</button> <span class="muted" id="tgmsg" style="margin-left:8px"></span></p>',
+  '<h2>Active games</h2>',
   '<table><thead><tr><th>ID</th><th>Format</th><th>Seated</th><th>Status</th><th>Ranked</th></tr></thead><tbody id="games"></tbody></table>',
   '<h2>Feedback</h2><div id="feedback"></div>',
   '<p class="muted" id="foot"></p><p class="muted"><button onclick="logout()">Forget key</button></p></div>',
@@ -637,6 +679,7 @@ const ADMIN_HTML = [
   '  document.getElementById("foot").textContent="Updated "+new Date(s.now).toLocaleTimeString()+" · refreshes every 5s";',
   ' }catch(e){var f=document.getElementById("foot");if(f)f.textContent="Network error."}',
   '}',
+  'async function testgame(){var m=document.getElementById("tgmsg");m.textContent="creating game…";try{var r=await fetch("/admin/testgame",{method:"POST",headers:{"x-admin-key":key}});var d=await r.json();if(r.ok&&d.tableId){m.textContent="opened table "+d.tableId+" in a new tab";window.open("/?table="+d.tableId,"_blank")}else{m.textContent="Failed: "+(d.error||r.status)}}catch(e){m.textContent="Network error."}}',
   'load();setInterval(load,5000);',
   '</script></body></html>',
 ].join('');
@@ -656,6 +699,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
   if (req.method === 'POST' && req.url === '/auth/profile') return void handleProfile(req, res);
   if (req.method === 'POST' && req.url === '/auth/match') return void handleMatch(req, res);
+  if (req.method === 'POST' && req.url === '/admin/testgame') return void handleTestGame(req, res);
   if (req.method === 'GET' && (req.url ?? '').startsWith('/stats')) return void handleStats(req, res);
   if (req.method === 'GET' && (req.url === '/admin' || (req.url ?? '').startsWith('/admin?'))) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });

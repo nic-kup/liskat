@@ -8,6 +8,7 @@ import {
   createRound,
   applyAction,
   legalCards,
+  nextBid,
   deal,
   cardId,
   type MatchFormat,
@@ -23,6 +24,7 @@ import type { DealReplay } from './history.ts';
 
 const BETWEEN_DEALS_MS = 6000;
 const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table before it is swept
+const BOT_MOVE_MS = 800; // pause before a bot plays, so a human can follow what happened
 
 // Move clock: every player gets TURN_BASE_MS for each decision, drawing on a
 // personal time bank once that runs out. The bank starts at BANK_START_MS and
@@ -88,6 +90,12 @@ export class Table {
   private timedSlot = -1;
   private turnAllowance = TURN_BASE_MS; // base time for the clock currently running
 
+  // Slots filled by a bot that auto-plays. Used only by admin "test games" so a
+  // single human can try the interface against two random-move opponents; real
+  // matchmade/private tables never have bots.
+  private botSlots = new Set<number>();
+  private botTimer: ReturnType<typeof setTimeout> | null = null;
+
   // Injected so the server can re-send views whenever something changes.
   onChange: () => void = () => {};
   // Injected timer so tests can run without real delays; defaults to setTimeout.
@@ -145,6 +153,28 @@ export class Table {
     this.seats[slot] = { id, nick };
     if (this.seatedCount === 3 && this.status === 'waiting') this.startMatch();
     return true;
+  }
+
+  // Seats a bot in the first open slot. Bots have no socket; the table plays
+  // their turns automatically (see scheduleBotMove). Returns false if full.
+  addBot(nick: string): boolean {
+    const slot = this.seats.findIndex((s) => s === null);
+    if (slot < 0) return false;
+    this.seats[slot] = { id: `bot_${Math.random().toString(36).slice(2, 10)}`, nick };
+    this.botSlots.add(slot);
+    if (this.seatedCount === 3 && this.status === 'waiting') this.startMatch();
+    return true;
+  }
+
+  // Whether this table has any bot seats (an admin test game).
+  isBotTable(): boolean {
+    return this.botSlots.size > 0;
+  }
+
+  // Whether a real (non-bot) player still occupies a seat. Used to tear a test
+  // game down once the human leaves rather than leaving bots sitting forever.
+  hasHuman(): boolean {
+    return this.seats.some((s, i) => s !== null && !this.botSlots.has(i));
   }
 
   removePlayer(id: string): void {
@@ -270,6 +300,10 @@ export class Table {
       clearTimeout(this.turnTimer);
       this.turnTimer = null;
     }
+    if (this.botTimer) {
+      clearTimeout(this.botTimer);
+      this.botTimer = null;
+    }
   }
 
   // Base time for the current decision: the opening bid of a deal gets extra.
@@ -282,6 +316,7 @@ export class Table {
   // Starts the clock for whoever is on turn now.
   private armTimer(): void {
     this.clearTurnTimer();
+    this.scheduleBotMove(); // if a bot is on turn, queue its move (any timed-ness)
     if (!this.timed) {
       this.timedSlot = -1;
       this.turnStart = 0;
@@ -362,6 +397,57 @@ export class Table {
       return { type: 'playCard', seat: role, card: legal[Math.floor(Math.random() * legal.length)] };
     }
     return null;
+  }
+
+  // ---- Bots ----------------------------------------------------------------
+
+  // Schedules a bot's move when one is on turn. Re-checks state when it fires
+  // (the human may have left, or play moved on), then plays, advances, and
+  // re-arms — which schedules the next bot move if another bot is up.
+  private scheduleBotMove(): void {
+    if (this.botSlots.size === 0 || this.status !== 'playing' || !this.round) return;
+    const slot = this.activeSlot();
+    if (slot < 0 || !this.botSlots.has(slot)) return;
+    this.botTimer = setTimeout(() => {
+      this.botTimer = null;
+      if (this.status !== 'playing' || !this.round) return;
+      if (this.activeSlot() !== slot || !this.botSlots.has(slot)) return;
+      this.runGuarded(() => {
+        const action = this.botAction(slot);
+        if (action) {
+          const bidBefore = this.round!.bidding?.currentBid ?? 0;
+          this.round = applyAction(this.round!, action);
+          this.recordAction(action, bidBefore);
+        }
+        this.turnStart = 0;
+        this.advance();
+        this.armTimer();
+        this.onChange();
+      });
+    }, BOT_MOVE_MS);
+    (this.botTimer as { unref?: () => void }).unref?.();
+  }
+
+  // A bot's move: in the auction it competes at low values about half the time
+  // (so it sometimes wins and the human gets to defend), otherwise it passes.
+  // Once it's the declarer or in trick play it just plays a random legal move.
+  private botAction(slot: number): Action | null {
+    const r = this.round!;
+    const role = roleOfSlot(slot, this.dealIndex);
+    if (r.phase === 'bidding') {
+      const b = r.bidding;
+      const compete = Math.random() < 0.5 && b.currentBid < 30;
+      if (b.awaiting === 'response') {
+        return compete ? { type: 'hold', seat: role } : { type: 'pass', seat: role };
+      }
+      // 'call' (asker raises) or 'forehand-decision' (forehand opens): bid or pass.
+      if (compete) {
+        const v = nextBid(b.currentBid);
+        if (v !== null) return { type: 'bid', seat: role, value: v };
+      }
+      return { type: 'pass', seat: role };
+    }
+    return this.randomAction(slot);
   }
 
   // Drives automatic transitions: a completed trick is revealed briefly then

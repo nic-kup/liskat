@@ -8,10 +8,17 @@
 
   connect();
 
-  // If arriving via a shared table link (?table=ID), remember it so the lobby
-  // can offer to join once a nickname is set.
+  // If arriving via a shared table link (?table=ID), auto-join once the socket
+  // is connected and our identity is established. Guarded so it fires once.
   const params = new URLSearchParams(location.search);
   const invitedTable = params.get('table');
+  let joinTried = $state(false);
+  $effect(() => {
+    if (invitedTable && $conn.connected && $conn.playerId && !$conn.view && !joinTried) {
+      joinTried = true;
+      joinTable(invitedTable);
+    }
+  });
 </script>
 
 <main>
@@ -24,7 +31,13 @@
   {:else}
     <Lobby />
     {#if invitedTable}
-      <p class="invite">You were invited to table <code>{invitedTable}</code> — set a nickname above, then join with this id.</p>
+      <p class="invite">
+        {#if $conn.error}
+          Couldn't join table <code>{invitedTable}</code>: {$conn.error}
+        {:else}
+          Joining table <code>{invitedTable}</code>…
+        {/if}
+      </p>
     {/if}
   {/if}
 </main>
