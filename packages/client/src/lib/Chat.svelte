@@ -7,7 +7,7 @@
     messages: { nick: string; slot: number; text: string }[];
   }
   let { messages }: Props = $props();
-  let open = $state(true);
+  let open = $state(false);
 </script>
 
 <div class="chat" class:open>

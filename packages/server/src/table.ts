@@ -24,7 +24,10 @@ import type { DealReplay } from './history.ts';
 
 const BETWEEN_DEALS_MS = 6000;
 const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table before it is swept
-const BOT_MOVE_MS = 800; // pause before a bot plays, so a human can follow what happened
+// A bot waits a beat before playing so a human can follow what happened. The
+// delay is randomised in this range so the bots don't feel robotically uniform.
+const BOT_MOVE_MIN_MS = 1000;
+const BOT_MOVE_MAX_MS = 2000;
 
 // Move clock: every player gets TURN_BASE_MS for each decision, drawing on a
 // personal time bank once that runs out. The bank starts at BANK_START_MS and
@@ -410,6 +413,7 @@ export class Table {
     if (this.botSlots.size === 0 || this.status !== 'playing' || !this.round) return;
     const slot = this.activeSlot();
     if (slot < 0 || !this.botSlots.has(slot)) return;
+    const delay = BOT_MOVE_MIN_MS + Math.floor(Math.random() * (BOT_MOVE_MAX_MS - BOT_MOVE_MIN_MS));
     this.botTimer = setTimeout(() => {
       this.botTimer = null;
       if (this.status !== 'playing' || !this.round) return;
@@ -426,7 +430,7 @@ export class Table {
         this.armTimer();
         this.onChange();
       });
-    }, BOT_MOVE_MS);
+    }, delay);
     (this.botTimer as { unref?: () => void }).unref?.();
   }
 

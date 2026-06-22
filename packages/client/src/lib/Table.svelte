@@ -34,10 +34,23 @@
       .filter((p) => p.slot !== mySlot)
       .sort((a, b) => ((a.role - myRole + 3) % 3) - ((b.role - myRole + 3) % 3));
   });
+  // A card the local player just clicked, shown as already played (pulled from
+  // the hand and dropped into the trick) before the server confirms, so play
+  // feels instant. Reconciled against the authoritative view below.
+  let pending = $state<Card | null>(null);
   const hand = $derived.by(() => {
     if (!round) return [];
-    const sorted = sortHand(round.yourHand, round.contract ?? undefined);
+    const cards = pending ? round.yourHand.filter((c) => cardId(c) !== cardId(pending!)) : round.yourHand;
+    const sorted = sortHand(cards, round.contract ?? undefined);
     return sortRev ? [...sorted].reverse() : sorted;
+  });
+  // Drop the optimistic card once the server view catches up: either it confirms
+  // the play (the card has left our hand) or the turn moved on without it (e.g. a
+  // clock timeout played something else), in which case we revert.
+  $effect(() => {
+    if (!pending) return;
+    const inHand = round?.yourHand?.some((c) => cardId(c) === cardId(pending!));
+    if (!inHand || !isMyTurn()) pending = null;
   });
   const timed = $derived(view?.timed ?? true);
   // The dealer is rearhand (role 2); a chip marks their seat.
@@ -126,8 +139,16 @@
     { k: 'D', name: 'Diamonds' },
   ];
 
+  // Reset the discard/declare picks at the start of each new deal — but ONLY when
+  // the deal actually changes. Keying off the whole view object would wipe the
+  // player's in-progress selection on every unrelated update (e.g. the move-clock
+  // tick or a bot's move elsewhere), which looked like the chosen Skat cards
+  // unselecting themselves while declaring.
+  let lastDeal = -1;
   $effect(() => {
-    view?.dealIndex;
+    const d = view?.dealIndex ?? -1;
+    if (d === lastDeal) return;
+    lastDeal = d;
     selected = [];
     annSchneider = annSchwarz = annOpen = false;
     selGame = '';
@@ -284,7 +305,10 @@
 
   function onCardClick(card: Card) {
     if (round?.phase === 'declaring' && round.declareStep === 'discard') toggleSelect(card);
-    else if (round?.phase === 'playing' && isMyTurn() && legalNow(card)) playCard(card);
+    else if (round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)) {
+      pending = card; // show it played at once; the next server view confirms
+      playCard(card);
+    }
   }
 
   function slotName(slot: number): string {
@@ -528,8 +552,9 @@
           <div class="trickboard">
             {#each [{ pos: 'left', slot: opponents[0]?.slot }, { pos: 'right', slot: opponents[1]?.slot }, { pos: 'me', slot: mySlot }] as p}
               {@const id = identityForSlot(p.slot ?? 0)}
-              {@const t = p.slot != null ? round.trick.find((x) => x.slot === p.slot) : undefined}
-              <div class="slot {p.pos}" class:lead={round.trick.length === 0 && round.turnSlot === p.slot}>
+              {@const serverCard = p.slot != null ? round.trick.find((x) => x.slot === p.slot) : undefined}
+              {@const t = serverCard ?? (p.slot === mySlot && pending ? { slot: mySlot, card: pending } : undefined)}
+              <div class="slot {p.pos}" class:lead={!t && round.trick.length === 0 && round.turnSlot === p.slot}>
                 <div class="slot-card" class:filled={!!t} style="--c:{id.color}">
                   {#if t}<CardView card={t.card} fill />{/if}
                 </div>
@@ -584,12 +609,12 @@
         <div class="hand">
           {#each hand as card (cardId(card))}
             {@const selectable = round?.phase === 'declaring' && round.declareStep === 'discard'}
-            {@const playable = round?.phase === 'playing' && isMyTurn() && legalNow(card)}
+            {@const playable = round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)}
             <CardView
               {card}
               width={92}
               selected={selected.includes(cardId(card))}
-              dim={round?.phase === 'playing' && isMyTurn() && !playable}
+              dim={round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card)}
               onclick={selectable || playable ? () => onCardClick(card) : undefined}
             />
           {/each}

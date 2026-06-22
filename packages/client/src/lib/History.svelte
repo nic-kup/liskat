@@ -83,9 +83,14 @@
     font-size: 13px;
     overflow: hidden;
   }
-  /* After the match it's the full summary (names along the top), so give it room
-     to breathe and let it grow taller. */
+  /* After the match it's the full summary (names along the top): lift it out of
+     the corner and centre it on screen so it reads as the end-of-game scorecard. */
   .history.over {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, -50%);
+    z-index: 200;
     width: auto;
     min-width: 240px;
     max-width: 380px;
@@ -104,12 +109,7 @@
     }
     .history.over {
       display: block;
-      top: 50%;
-      left: 50%;
-      right: auto;
-      transform: translate(-50%, -50%);
       width: min(92vw, 320px);
-      z-index: 200;
     }
     .history.over .scroll {
       max-height: 60vh;
