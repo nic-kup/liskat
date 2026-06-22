@@ -1,0 +1,88 @@
+# Deploy queue: every push to main waits for a safe window (no games in
+# progress and nobody queued) and then deploys to Fly. A newer push cancels a
+# waiting one, so the latest commit is always what ships. Push freely.
+#
+# Requires two repository secrets (Settings → Secrets and variables → Actions):
+#   FLY_API_TOKEN  — a Fly deploy token:  fly tokens create deploy
+#   ADMIN_TOKEN    — the same value as the server's ADMIN_TOKEN Fly secret,
+#                    used to read /stats and tell whether games are running.
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Deploy now without waiting for a quiet window
+        type: boolean
+        default: false
+
+# Only one deploy at a time; a new push cancels a deploy that's still waiting
+# for a quiet window, so the newest commit wins.
+concurrency:
+  group: fly-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # Gate the deploy on a green test run so a broken push never ships.
+      - run: npm ci
+      - run: npm test
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # Hold here until the live server reports no active games and an empty
+      # queue, polling once a minute. Bails out after MAX_MINUTES and deploys
+      # anyway, so a permanently-busy (or unreachable) server can't block
+      # updates forever. Skipped when run manually with force=true.
+      - name: Wait for a quiet window
+        if: ${{ ! inputs.force }}
+        env:
+          ADMIN_TOKEN: ${{ secrets.ADMIN_TOKEN }}
+        run: |
+          set -uo pipefail
+          if [ -z "${ADMIN_TOKEN:-}" ]; then
+            echo "::error::ADMIN_TOKEN secret is not set — can't tell if games are running."
+            exit 1
+          fi
+          MAX_MINUTES=300
+          deadline=$(( $(date +%s) + MAX_MINUTES * 60 ))
+          while :; do
+            code=$(curl -s -o /tmp/stats.json -w '%{http_code}' \
+              -H "x-admin-key: $ADMIN_TOKEN" https://liskat.com/stats || echo 000)
+            if [ "$code" = "401" ]; then
+              echo "::error::/stats rejected ADMIN_TOKEN (401) — check the secret matches the server."
+              exit 1
+            fi
+            if [ "$code" = "200" ]; then
+              active=$(jq -r '.activeGames // empty' /tmp/stats.json)
+              queued=$(jq -r '.queued // empty' /tmp/stats.json)
+              echo "active=${active:-?} queued=${queued:-?}"
+              if [ "$active" = "0" ] && [ "$queued" = "0" ]; then
+                echo "Quiet window — deploying."
+                break
+              fi
+            else
+              echo "stats unavailable (HTTP $code) — retrying"
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Waited ${MAX_MINUTES}m — deploying regardless."
+              break
+            fi
+            sleep 60
+          done
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: flyctl deploy --remote-only
