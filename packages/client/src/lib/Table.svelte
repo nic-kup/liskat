@@ -517,27 +517,66 @@
             <div class="panel"><p class="prompt muted">{slotName(round.declarerSlot ?? 0)} is choosing the game…</p></div>
           {/if}
         {:else if round?.phase === 'playing'}
-          <div class="trick">
-            {#each round.trick as t}
-              {@const id = identityForSlot(t.slot)}
-              <div class="played">
-                <span class="marker" style="color:{id.color}">{id.marker}</span>
-                <CardView card={t.card} width={88} />
+          <!-- Trick board: each player's card lands in a fixed slot — the two
+               opponents across the top, you at the bottom (inverted triangle).
+               Empty slots show a faint outline so you can see where cards go. -->
+          <div class="trickboard">
+            {#each [{ pos: 'left', slot: opponents[0]?.slot }, { pos: 'right', slot: opponents[1]?.slot }, { pos: 'me', slot: mySlot }] as p}
+              {@const id = identityForSlot(p.slot ?? 0)}
+              {@const t = p.slot != null ? round.trick.find((x) => x.slot === p.slot) : undefined}
+              <div class="slot {p.pos}" class:lead={round.trick.length === 0 && round.turnSlot === p.slot}>
+                <span class="slot-marker" style="color:{id.color}">{id.marker}</span>
+                <div class="slot-card" class:filled={!!t} style="--c:{id.color}">
+                  {#if t}<CardView card={t.card} fill />{/if}
+                </div>
               </div>
             {/each}
-            {#if round.trick.length === 0}
-              {@const lid = identityForSlot(round.turnSlot)}
-              <p class="muted"><span class="marker" style="color:{lid.color}">{lid.marker}</span> {slotName(round.turnSlot)} leads…</p>
-            {/if}
           </div>
         {/if}
       </div>
 
-      <!-- My seat -->
+      <!-- My seat — de-stacked into a horizontal bar: score+name left, clock
+           centred, dealer/bid/game right. Modifiers are dropped (you know your
+           own game). -->
       <div class="myseat" class:turn={isMyTurn()} class:declarer={round?.declarerSlot === mySlot}>
+        {#if round && round.lastTrick.length === 3}
+          <div class="lasttrick">
+            <div class="lt-label">last trick</div>
+            <div class="lt-cards">
+              {#each round.lastTrick as t}
+                {@const id = identityForSlot(t.slot)}
+                <div class="lt-card">
+                  <span class="marker" style="color:{id.color}">{id.marker}</span>
+                  <CardView card={t.card} width={46} />
+                </div>
+              {/each}
+            </div>
+          </div>
+        {/if}
         <button class="sortbtn" onclick={toggleSort} title="Reverse card order">⇄</button>
-        <div class="mycard">
-          {@render seatCard(mySlot)}
+        <div class="mycard myrow">
+          <div class="mc-left">
+            <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
+            <span class="marker" style="color:{identityForSlot(mySlot).color}">{identityForSlot(mySlot).marker}</span>
+            <strong>{slotName(mySlot)}</strong>
+          </div>
+          <div class="mc-center">
+            {#if timed && round}
+              {@const c = clockFor(mySlot)}
+              <span class="time" class:low={c.low}>{c.base}</span>
+              <span class="vsep"></span>
+              <span class="reserve" class:low={c.low}>{c.reserve}</span>
+            {:else}
+              <span class="time">—</span>
+            {/if}
+          </div>
+          <div class="mc-right">
+            {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
+            {#if round?.declarerSlot === mySlot}
+              <span class="bid-cell">{round.bid}</span>
+              <span class="game-cell">{contractLabel(round.contract)}</span>
+            {/if}
+          </div>
         </div>
         <div class="hand">
           {#each hand as card (cardId(card))}
@@ -563,20 +602,6 @@
         </div>
       {/if}
 
-      {#if round && round.lastTrick.length === 3}
-        <div class="lasttrick">
-          <div class="lt-label">last trick</div>
-          <div class="lt-cards">
-            {#each round.lastTrick as t}
-              {@const id = identityForSlot(t.slot)}
-              <div class="lt-card">
-                <span class="marker" style="color:{id.color}">{id.marker}</span>
-                <CardView card={t.card} width={46} />
-              </div>
-            {/each}
-          </div>
-        </div>
-      {/if}
 
       <History history={view.history} players={view.players} matchOver={view.status === 'over'} />
       <Chat messages={view.chat} />
@@ -641,7 +666,10 @@
   /* Seat card — shared by opponents and your own seat. Four fixed lines:
      score | name, time | reserve, dealer | bid | game, then modifiers. Every
      cell keeps its space (filled or blank) so nothing shifts between deals. */
-  .seat {
+  /* Your info card is styled exactly like an opponent's seat; .myseat just adds
+     the surrounding white box that also holds your hand. */
+  .seat,
+  .mycard {
     position: relative;
     min-width: 210px;
     border-radius: 12px;
@@ -650,16 +678,17 @@
     border: 1px solid transparent;
     transition: box-shadow 0.15s, background 0.15s;
   }
-  .seat.turn {
+  .seat.turn,
+  .myseat.turn .mycard {
     background: rgba(255, 255, 255, 0.22);
   }
-  .seat.declarer {
+  .seat.declarer,
+  .myseat.declarer .mycard {
     border-color: rgba(255, 213, 74, 0.45);
     background: rgba(255, 213, 74, 0.06);
   }
-  /* Your own info card is layout-only; the surrounding white box is .myseat. */
-  .mycard {
-    min-width: 210px;
+  .myseat.turn.declarer .mycard {
+    background: rgba(255, 255, 255, 0.18);
   }
   .cline {
     display: flex;
@@ -932,11 +961,12 @@
     background: rgba(255, 255, 255, 0.16);
     color: #f2f5f3;
   }
-  /* Sits just above your seat box, hugging the right edge. */
+  /* Anchored just above the seat box (its parent), hugging the right edge — so
+     it tracks the board's height instead of a magic offset. */
   .lasttrick {
-    position: fixed;
-    right: 16px;
-    bottom: 290px;
+    position: absolute;
+    right: 4px;
+    bottom: calc(100% + 8px);
     text-align: center;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -988,42 +1018,101 @@
     justify-content: center;
     margin-top: 6px;
   }
-  .trick {
-    display: flex;
-    gap: 14px;
+  /* Inverted-triangle trick board: opponents across the top, you at the bottom,
+     each card landing in a fixed slot. Empty slots show a faint coloured
+     outline marking where that player's card goes. */
+  .trickboard {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 56px;
+    row-gap: 10px;
+    justify-content: center;
+    align-items: start;
   }
-  .played {
+  .slot {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 4px;
+    gap: 3px;
   }
-  .played .marker {
-    font-size: 18px;
+  .slot.left {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .slot.right {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .slot.me {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    justify-self: center;
+  }
+  .slot-marker {
+    font-size: 16px;
     line-height: 1;
   }
-  /* The white opaque box around your own cards — info card on top, hand below.
-     Extra bottom padding lets the box sit a little lower than the cards. */
+  .slot.lead .slot-marker {
+    text-shadow: 0 0 8px currentColor;
+  }
+  .slot-card {
+    width: 88px;
+    aspect-ratio: 250 / 350;
+    border-radius: 8%;
+    border: 2px dashed var(--c);
+    opacity: 0.35;
+    box-sizing: border-box;
+  }
+  .slot-card.filled {
+    border-color: transparent;
+    opacity: 1;
+  }
+  /* A subtle white box around your own cards — dark info card on top, hand
+     below. Extra bottom padding lets the box sit a little lower than the cards.
+     (Turn/declarer highlighting lives on the .mycard so it matches opponents.) */
   .myseat {
     position: relative;
     margin-top: auto;
+    width: 100%;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
     padding: 8px 12px 22px;
     border-radius: 14px;
-    border: 1px solid transparent;
-    background: rgba(255, 255, 255, 0.06);
-    transition: background 0.15s;
+    background: rgba(255, 255, 255, 0.05);
   }
-  .myseat.turn {
-    background: rgba(255, 255, 255, 0.18);
+  /* The player's card is a horizontal bar rather than four stacked lines. */
+  .mycard.myrow {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+    width: min(680px, 100%);
   }
-  .myseat.declarer {
-    border-color: rgba(255, 213, 74, 0.45);
+  .mc-left {
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .mc-center {
+    justify-self: center;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .mc-right {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 24px;
   }
   .hand {
+    width: 100%;
+    box-sizing: border-box;
     display: flex;
     justify-content: center;
     align-items: flex-end;
@@ -1138,6 +1227,49 @@
   @media (max-width: 980px) {
     .table {
       padding-bottom: 7vh;
+    }
+  }
+  /* Phones: shrink the seat cards so two opponents fit side by side, and the
+     trick cards so the triangle fits the narrow screen. */
+  @media (max-width: 600px) {
+    .opponents {
+      gap: 8px;
+    }
+    .slot-card {
+      width: 58px;
+    }
+    .trickboard {
+      column-gap: 36px;
+    }
+    .seat {
+      min-width: 0;
+      flex: 1 1 0;
+      padding: 6px 6px;
+    }
+    .cline {
+      gap: 6px;
+    }
+    .score,
+    .time,
+    .reserve {
+      font-size: 17px;
+      min-width: 0;
+    }
+    .namecell,
+    .game-cell {
+      min-width: 0;
+    }
+    .cline.l1,
+    .cline.l3 {
+      font-size: 13px;
+    }
+    .mycard.myrow {
+      gap: 6px;
+    }
+    .mc-left,
+    .mc-center,
+    .mc-right {
+      gap: 5px;
     }
   }
 </style>

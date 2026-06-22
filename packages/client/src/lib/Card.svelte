@@ -7,12 +7,13 @@
     back?: boolean;
     deck?: string;
     width?: number;
+    fill?: boolean; // size to the parent (width:100%) instead of a fixed px width
     selected?: boolean;
     dim?: boolean;
     onclick?: () => void;
   }
 
-  let { card, back = false, deck = 'french', width = 92, selected = false, dim = false, onclick }: Props = $props();
+  let { card, back = false, deck = 'french', width = 92, fill = false, selected = false, dim = false, onclick }: Props = $props();
 
   const src = $derived(back || !card ? `/cards/${deck}/back.svg` : `/cards/${deck}/${cardId(card)}.svg`);
 </script>
@@ -22,7 +23,7 @@
   class:selected
   class:dim
   class:clickable={!!onclick}
-  style="width:{width}px"
+  style={fill ? 'width:100%' : `width:${width}px`}
   onclick={onclick}
 >
   <img {src} alt={card ? cardId(card) : 'card back'} draggable="false" />

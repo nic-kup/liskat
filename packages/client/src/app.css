@@ -51,19 +51,14 @@ button {
 }
 
 /* Narrow / phone layout. Chat and history are the least essential overlays, so
-   both are hidden (history via its own scoped rule); the last trick moves to the
-   top-right corner with compact cards instead of floating over play. */
+   both are hidden (history via its own scoped rule). The last trick is anchored
+   just above the player board (in Table.svelte); here we only shrink its cards. */
 @media (max-width: 980px) {
   .chat {
     display: none !important;
   }
   .lasttrick {
-    top: 56px !important;
-    right: 6px !important;
-    bottom: auto !important;
-    transform: none !important;
     padding: 6px !important;
-    z-index: 60 !important;
   }
   .lasttrick .lt-cards {
     gap: 3px !important;
