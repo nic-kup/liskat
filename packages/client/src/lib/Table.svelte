@@ -323,27 +323,32 @@
 
 {#snippet seatCard(slot: number)}
   {@const id = identityForSlot(slot)}
+  {@const decl = round?.declarerSlot === slot}
+  <!-- Three lines on a shared 3-column grid (left | centre | right) so the
+       centre divider lines up vertically: score⋯name, time|reserve, then
+       dealer⋯bid|game with its divider directly under the clock's. -->
   <div class="cline l1">
     <span class="score">{view.match?.scores[slot] ?? 0}</span>
-    <span class="vsep"></span>
+    <span class="cmid"></span>
     <span class="namecell"><span class="marker" style="color:{id.color}">{id.marker}</span> <strong>{slotName(slot)}</strong></span>
   </div>
   <div class="cline l2">
     {#if timed && round}
       {@const c = clockFor(slot)}
       <span class="time" class:low={c.low}>{c.base}</span>
-      <span class="vsep"></span>
+      <span class="cmid vsep"></span>
       <span class="reserve" class:low={c.low}>{c.reserve}</span>
     {:else}
-      <span class="time">—</span><span class="vsep"></span><span class="reserve">—</span>
+      <span class="time">—</span><span class="cmid vsep"></span><span class="reserve">—</span>
     {/if}
   </div>
   <div class="cline l3">
-    <span class="dcell">{#if dealerSlot === slot}<span class="dealer-chip" title="dealer">D</span>{/if}</span>
-    <span class="vsep"></span>
-    <span class="dcell bid-cell">{#if round?.declarerSlot === slot}{round.bid}{/if}</span>
-    <span class="vsep"></span>
-    <span class="dcell game-cell">{#if round?.declarerSlot === slot}{contractLabel(round.contract)}{/if}</span>
+    <span class="l3left">
+      <span class="dcell">{#if dealerSlot === slot}<span class="dealer-chip" title="dealer">D</span>{/if}</span>
+      <span class="bid-cell">{#if decl}{round.bid}{/if}</span>
+    </span>
+    <span class="cmid" class:vsep={decl}></span>
+    <span class="game-cell">{#if decl}{contractLabel(round.contract)}{/if}</span>
   </div>
   <div class="modline">{declarerMods(slot)}</div>
 {/snippet}
@@ -525,7 +530,6 @@
               {@const id = identityForSlot(p.slot ?? 0)}
               {@const t = p.slot != null ? round.trick.find((x) => x.slot === p.slot) : undefined}
               <div class="slot {p.pos}" class:lead={round.trick.length === 0 && round.turnSlot === p.slot}>
-                <span class="slot-marker" style="color:{id.color}">{id.marker}</span>
                 <div class="slot-card" class:filled={!!t} style="--c:{id.color}">
                   {#if t}<CardView card={t.card} fill />{/if}
                 </div>
@@ -542,12 +546,11 @@
         {#if round && round.lastTrick.length === 3}
           <div class="lasttrick">
             <div class="lt-label">last trick</div>
-            <div class="lt-cards">
-              {#each round.lastTrick as t}
-                {@const id = identityForSlot(t.slot)}
-                <div class="lt-card">
-                  <span class="marker" style="color:{id.color}">{id.marker}</span>
-                  <CardView card={t.card} width={46} />
+            <div class="lt-board">
+              {#each [{ pos: 'left', slot: opponents[0]?.slot }, { pos: 'right', slot: opponents[1]?.slot }, { pos: 'me', slot: mySlot }] as p}
+                {@const lc = p.slot != null ? round.lastTrick.find((x) => x.slot === p.slot) : undefined}
+                <div class="lt-slot {p.pos}">
+                  {#if lc}<CardView card={lc.card} width={40} />{/if}
                 </div>
               {/each}
             </div>
@@ -690,14 +693,14 @@
   .myseat.turn.declarer .mycard {
     background: rgba(255, 255, 255, 0.18);
   }
+  /* Each line shares a left | centre | right grid so the centre divider lines
+     up vertically across all three lines (the clock's separator and the
+     bid/game separator sit on the same axis). */
   .cline {
-    display: flex;
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
     align-items: center;
-    justify-content: center;
-    gap: 10px;
-  }
-  .cline.l1 {
-    font-size: 15px;
+    column-gap: 8px;
   }
   .cline.l2 {
     margin-top: 5px;
@@ -707,17 +710,18 @@
     min-height: 22px;
     font-size: 15px;
   }
+  .cmid {
+    width: 1px;
+  }
   .score {
+    justify-self: start;
     font-size: 22px;
     font-weight: 700;
     color: #f2f5f3;
     font-variant-numeric: tabular-nums;
-    min-width: 40px;
-    text-align: right;
   }
   .namecell {
-    min-width: 96px;
-    text-align: left;
+    justify-self: end;
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -727,13 +731,12 @@
     font-size: 22px;
     font-variant-numeric: tabular-nums;
     color: #f2f5f3;
-    min-width: 48px;
   }
   .time {
-    text-align: right;
+    justify-self: end;
   }
   .reserve {
-    text-align: left;
+    justify-self: start;
     color: var(--muted);
   }
   .time.low,
@@ -741,19 +744,23 @@
     color: #ff5252;
     font-weight: 700;
   }
+  /* Left half of line 3: dealer puck pinned left, bid pinned to the centre. */
+  .l3left {
+    justify-self: stretch;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
   .dcell {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
-    min-width: 22px;
   }
   .bid-cell {
-    min-width: 26px;
     font-weight: 700;
     color: #ffd54a;
   }
   .game-cell {
-    min-width: 74px;
+    justify-self: start;
     color: #f2f5f3;
   }
   .modline {
@@ -945,8 +952,8 @@
   }
   .sortbtn {
     position: absolute;
-    right: 16px;
-    bottom: 16px;
+    right: 8px;
+    top: 8px;
     z-index: 2;
     background: rgba(255, 255, 255, 0.08);
     border: 1px solid rgba(255, 255, 255, 0.15);
@@ -980,20 +987,26 @@
     text-transform: uppercase;
     letter-spacing: 1px;
   }
-  .lt-cards {
-    display: flex;
-    gap: 6px;
-    margin: 6px 0;
+  /* Mini inverted triangle, mirroring the main trick board. */
+  .lt-board {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: 8px;
+    row-gap: 3px;
+    margin: 5px 0 0;
   }
-  .lt-card {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 2px;
+  .lt-slot.left {
+    grid-column: 1;
+    grid-row: 1;
   }
-  .lt-card .marker {
-    font-size: 12px;
-    line-height: 1;
+  .lt-slot.right {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .lt-slot.me {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    justify-self: center;
   }
   .skatreveal {
     margin: 10px 0 4px;
@@ -1048,13 +1061,6 @@
     grid-row: 2;
     justify-self: center;
   }
-  .slot-marker {
-    font-size: 16px;
-    line-height: 1;
-  }
-  .slot.lead .slot-marker {
-    text-shadow: 0 0 8px currentColor;
-  }
   .slot-card {
     width: 88px;
     aspect-ratio: 250 / 350;
@@ -1066,6 +1072,11 @@
   .slot-card.filled {
     border-color: transparent;
     opacity: 1;
+  }
+  /* Highlight the slot whose player is on lead. */
+  .slot.lead .slot-card {
+    opacity: 0.85;
+    box-shadow: 0 0 12px var(--c);
   }
   /* A subtle white box around your own cards — dark info card on top, hand
      below. Extra bottom padding lets the box sit a little lower than the cards.
@@ -1270,6 +1281,12 @@
     .mc-center,
     .mc-right {
       gap: 5px;
+    }
+    /* Cap the hand cards at their 7-card size so they stop growing as the hand
+       empties (≈ (hand width − gaps) / 7). They still shrink past 7 cards.
+       :global because the cards are a child component (own scope). */
+    .hand > :global(.card) {
+      max-width: 43px;
     }
   }
 </style>

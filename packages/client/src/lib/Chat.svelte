@@ -35,7 +35,7 @@
   .chat {
     position: fixed;
     left: 16px;
-    top: 225px;
+    top: 205px;
     width: 220px;
     z-index: 6;
     display: flex;
@@ -48,7 +48,7 @@
     overflow: hidden;
   }
   .chat.open {
-    bottom: 200px;
+    bottom: 250px;
   }
   .toggle {
     width: 100%;

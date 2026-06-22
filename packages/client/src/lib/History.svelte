@@ -73,7 +73,7 @@
   .history {
     position: fixed;
     right: 16px;
-    top: 225px;
+    top: 205px;
     width: 230px;
     z-index: 6;
     background: rgba(0, 0, 0, 0.4);
