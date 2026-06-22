@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable } from './ws.ts';
-  import { cardId, nextBid, sortHand } from '@liskat/engine';
+  import { cardId, nextBid, sortHand, countMatadors } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
   import Chat from './Chat.svelte';
@@ -99,12 +99,33 @@
   let annSchneider = $state(false);
   let annSchwarz = $state(false);
   let annOpen = $state(false);
+  // The game the declarer is trying out before committing with [Declare].
+  let selGame = $state<'' | 'suit' | 'grand' | 'null'>('');
+  let selSuit = $state<'C' | 'S' | 'H' | 'D'>('C');
 
   $effect(() => {
     view?.dealIndex;
     selected = [];
     annSchneider = annSchwarz = annOpen = false;
+    selGame = '';
+    selSuit = 'C';
   });
+
+  // Keep announcements legal as they're toggled (mirrors the engine rules):
+  // announced Schwarz implies Schneider; Open in a suit/Grand implies both.
+  function annSetSchneider(v: boolean) {
+    annSchneider = v;
+    if (!v) annSchwarz = annOpen = false;
+  }
+  function annSetSchwarz(v: boolean) {
+    annSchwarz = v;
+    if (v) annSchneider = true;
+    else annOpen = false;
+  }
+  function annSetOpen(v: boolean) {
+    annOpen = v;
+    if (v && selGame !== 'null') (annSchwarz = true), (annSchneider = true);
+  }
 
   // Hand display order. Default puts the strongest cards (Jacks/trumps) on the
   // left, the common convention; the toggle flips it. Persisted.
@@ -172,6 +193,46 @@
     if (annOpen) schw = true;
     if (schw) sch = true;
     declareContract(contract, { schneiderAnnounced: sch, schwarzAnnounced: schw, ouvert: annOpen });
+  }
+
+  const SUIT_BASE: Record<string, number> = { D: 9, H: 10, S: 11, C: 12 };
+
+  // Matadors estimated from the declarer's own cards (exact once the Skat is
+  // taken; an estimate for a Hand game, where the Skat is unseen).
+  const declMatadors = $derived.by(() => {
+    if (!round || !selGame || selGame === 'null') return { n: 0, withTop: false };
+    const contract = (selGame === 'grand' ? { type: 'grand' } : { type: 'suit', suit: selSuit }) as Contract;
+    const n = countMatadors(round.yourHand, contract);
+    const withTop = round.yourHand.some((c) => c.rank === 'J' && c.suit === 'C');
+    return { n, withTop };
+  });
+
+  // The game value for the current selection (the value you'd be declaring).
+  const declValue = $derived.by(() => {
+    if (!round || !selGame) return 0;
+    const isHand = !round.tookSkat;
+    if (selGame === 'null') return annOpen ? (isHand ? 59 : 46) : isHand ? 35 : 23;
+    const base = selGame === 'grand' ? 24 : SUIT_BASE[selSuit];
+    let mult = declMatadors.n + 1; // matadors + the game itself
+    if (isHand) {
+      mult += 1; // hand
+      let sch = annSchneider;
+      let schw = annSchwarz;
+      if (annOpen) schw = true;
+      if (schw) sch = true;
+      if (sch) mult += 1;
+      if (schw) mult += 1;
+      if (annOpen) mult += 1;
+    }
+    return base * mult;
+  });
+
+  const canDeclare = $derived(!!selGame);
+
+  function confirmDeclare() {
+    if (!selGame) return;
+    const contract = (selGame === 'null' ? { type: 'null' } : selGame === 'grand' ? { type: 'grand' } : { type: 'suit', suit: selSuit }) as Contract;
+    declare(contract);
   }
 
   function onCardClick(card: Card) {
@@ -349,22 +410,43 @@
                 <button class="primary" onclick={doDiscard} disabled={selected.length !== 2}>Put in Skat</button>
               {:else if round.declareStep === 'contract'}
                 <h3>Choose your game</h3>
-                <div class="contracts">
-                  <button class="game" onclick={() => declare({ type: 'null' })} title="Lose every trick — value 23">Null</button>
-                  <button class="suit" style="color:#e6820a" onclick={() => declare({ type: 'suit', suit: 'D' })} title="Diamonds — base 9">♦</button>
-                  <button class="suit" style="color:#d11" onclick={() => declare({ type: 'suit', suit: 'H' })} title="Hearts — base 10">♥</button>
-                  <button class="suit" style="color:#1f7a1f" onclick={() => declare({ type: 'suit', suit: 'S' })} title="Spades — base 11">♠</button>
-                  <button class="suit" style="color:#1a1a1a" onclick={() => declare({ type: 'suit', suit: 'C' })} title="Clubs — base 12">♣</button>
-                  <button class="game" onclick={() => declare({ type: 'grand' })} title="Only Jacks are trumps — base 24">Grand</button>
-                </div>
-                <div class="anns">
-                  {#if round.tookSkat === false}
-                    <label><input type="checkbox" bind:checked={annSchneider} /> Schneider</label>
-                    <label><input type="checkbox" bind:checked={annSchwarz} /> Schwarz</label>
+                <div class="dchoose">
+                  <div class="drow">
+                    <button class:dsel={selGame === 'suit'} onclick={() => (selGame = 'suit')}>Suit</button>
+                    <button class:dsel={selGame === 'grand'} onclick={() => (selGame = 'grand')}>Grand</button>
+                    <button class:dsel={selGame === 'null'} onclick={() => (selGame = 'null')}>Null</button>
+                  </div>
+                  {#if selGame === 'suit'}
+                    <div class="drow">
+                      <button class:dsel={selSuit === 'D'} onclick={() => (selSuit = 'D')}>Diamonds · 9</button>
+                      <button class:dsel={selSuit === 'H'} onclick={() => (selSuit = 'H')}>Hearts · 10</button>
+                      <button class:dsel={selSuit === 'S'} onclick={() => (selSuit = 'S')}>Spades · 11</button>
+                      <button class:dsel={selSuit === 'C'} onclick={() => (selSuit = 'C')}>Clubs · 12</button>
+                    </div>
                   {/if}
-                  <label><input type="checkbox" bind:checked={annOpen} /> Open</label>
+                  {#if selGame === 'null'}
+                    <div class="drow">
+                      <button class:dsel={annOpen} onclick={() => annSetOpen(!annOpen)}>Open</button>
+                    </div>
+                  {:else if selGame && round.tookSkat === false}
+                    <div class="drow">
+                      <button class:dsel={annSchneider} onclick={() => annSetSchneider(!annSchneider)}>Schneider</button>
+                      <button class:dsel={annSchwarz} onclick={() => annSetSchwarz(!annSchwarz)}>Schwarz</button>
+                      <button class:dsel={annOpen} onclick={() => annSetOpen(!annOpen)}>Open</button>
+                    </div>
+                  {/if}
+
+                  {#if canDeclare}
+                    <div class="dvalue">
+                      <span class="dval">{declValue}</span>
+                      {#if selGame !== 'null'}<span class="dmeta">{declMatadors.withTop ? 'with' : 'without'} {declMatadors.n} matador{declMatadors.n === 1 ? '' : 's'}</span>{/if}
+                    </div>
+                    {#if declValue < round.bid}<p class="annnote warn">Below your bid of {round.bid} — you would need the Skat or Schneider/Schwarz to cover it.</p>{/if}
+                    <button class="primary declare" onclick={confirmDeclare}>Declare</button>
+                  {:else}
+                    <p class="prompt muted">Pick a game to see its value.</p>
+                  {/if}
                 </div>
-                <p class="annnote">Open: any time for Null. For a suit or Grand it needs a Hand game and counts as announced Schwarz.</p>
                 {@render hints()}
               {/if}
             </div>
@@ -666,37 +748,55 @@
     font-weight: 600;
     min-width: 64px;
   }
-  .contracts {
+  .dchoose {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+  }
+  .drow {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     justify-content: center;
-    margin-bottom: 8px;
   }
-  .contracts button {
-    font-size: 22px;
-    padding: 10px 16px;
-    min-width: 60px;
+  .drow button {
+    padding: 8px 14px;
+    font-size: 15px;
   }
-  .contracts .suit {
-    background: #fffdf7;
-    font-size: 26px;
-    line-height: 1;
+  .drow button.dsel {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
   }
-  .contracts .suit:hover {
-    background: #fff;
-    transform: translateY(-2px);
-  }
-  .anns {
+  .dvalue {
     display: flex;
-    gap: 14px;
-    justify-content: center;
-    margin: 8px 0;
+    align-items: baseline;
+    gap: 10px;
+    margin-top: 4px;
+  }
+  .dval {
+    font-size: 40px;
+    font-weight: 800;
+    line-height: 1;
+    color: #ffd54a;
+  }
+  .dmeta {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .declare {
+    padding: 12px 26px;
+    font-size: 17px;
   }
   .annnote {
     font-size: 12px;
     color: var(--muted);
     margin: 0 0 4px;
+  }
+  .annnote.warn {
+    color: #ffb74d;
   }
   .sortbtn {
     background: rgba(255, 255, 255, 0.08);
