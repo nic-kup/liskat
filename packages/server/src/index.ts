@@ -20,6 +20,13 @@ import type { MatchFormat } from '@liskat/engine';
 await initAccounts();
 await initRatings();
 
+// Last-resort safety net: a bug in one game's logic (or a rejected disk write)
+// must never crash this single always-on process and drop every live game. The
+// per-table runGuarded and per-promise .catch handle the known paths; these
+// catch anything that slips through so the server stays up.
+process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
+process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+
 const DEFAULT_FORMAT: MatchFormat = { kind: 'deals', deals: 12 };
 const matchmaker = new Matchmaker();
 
@@ -124,7 +131,16 @@ function maybeRecordMatch(table: Table): void {
         deals: table.replay,
       });
     })
-    .then(() => broadcastTable(table));
+    .then(() => broadcastTable(table))
+    // A persistence failure must never become an unhandled rejection (which
+    // would terminate the whole process); log and move on.
+    .catch((e) => console.error('failed to record match', table.id, e));
+}
+
+// Prunes empty tables and drops their one-shot record-once markers so the
+// ratedTables set can't grow without bound over the server's lifetime.
+function pruneTables(): void {
+  for (const id of lobby.prune()) ratedTables.delete(id);
 }
 
 function formatKeyOf(format: MatchFormat): string {
@@ -151,7 +167,7 @@ function leaveTable(client: Client): void {
     forfeitIfRated(client, table);
     table.removePlayer(client.id);
     broadcastTable(table);
-    lobby.prune();
+    pruneTables();
   }
   broadcastLobby();
 }
@@ -237,7 +253,7 @@ function dropClient(client: Client): void {
       forfeitIfRated(client, table);
       table.removePlayer(client.id);
       broadcastTable(table);
-      lobby.prune();
+      pruneTables();
     }
     broadcastLobby();
   }
@@ -256,9 +272,23 @@ matchmaker.onMatch = (format, ids) => {
   const table = lobby.create('private', format);
   table.rated = true; // matchmade games count toward Elo
   bindTable(table);
+  const seated: Client[] = [];
   for (const c of cs) {
-    c.tableId = table.id;
-    table.addPlayer(c.id, c.nick);
+    if (table.addPlayer(c.id, c.nick)) {
+      c.tableId = table.id;
+      seated.push(c);
+    }
+  }
+  // If any seat failed (a stale/duplicate id), don't strand a half-filled table:
+  // requeue whoever did sit and drop the dead table.
+  if (seated.length < 3) {
+    for (const c of seated) {
+      c.tableId = null;
+      table.removePlayer(c.id);
+      enqueueClient(c, format);
+    }
+    pruneTables();
+    return;
   }
   broadcastTable(table);
 };
@@ -347,6 +377,15 @@ function handle(client: Client, msg: ClientMessage): void {
 // Simple sliding-window per-IP rate limiter, shared by the public endpoints.
 function makeLimiter(max: number, windowMs: number): (ip: string) => boolean {
   const hits = new Map<string, number[]>();
+  // Evict IPs with no hits inside the window so the map can't grow unbounded
+  // (one entry per unique visitor, forever) on a long-running public server.
+  const sweep = setInterval(() => {
+    const cutoff = Date.now() - windowMs;
+    for (const [ip, times] of hits) {
+      if (times.length === 0 || times[times.length - 1] <= cutoff) hits.delete(ip);
+    }
+  }, windowMs);
+  sweep.unref?.();
   return (ip: string) => {
     const now = Date.now();
     const recent = (hits.get(ip) ?? []).filter((t) => now - t < windowMs);

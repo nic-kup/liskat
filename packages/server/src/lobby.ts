@@ -1,11 +1,9 @@
-// The lobby owns every table and handles matchmaking: create a private table
-// to share a link, or quick-match into the next open public table.
+// The lobby owns every table. Tables are created either as private rooms (to
+// share a link) or by the matchmaker when it forms a trio.
 
 import type { MatchFormat } from '@liskat/engine';
 import { Table } from './table.ts';
 import type { LobbyEntry } from './protocol.ts';
-
-const DEFAULT_FORMAT: MatchFormat = { kind: 'deals', deals: 12 };
 
 function makeId(): string {
   // Short, link-friendly, lowercase — e.g. "k7m2qp".
@@ -30,25 +28,21 @@ export class Lobby {
     return this.tables.get(id);
   }
 
-  // Finds an open public table (waiting, with a free seat) or creates one.
-  quickMatch(format: MatchFormat = DEFAULT_FORMAT): Table {
-    for (const t of this.tables.values()) {
-      if (t.visibility === 'public' && t.status === 'waiting' && t.seatedCount < 3 && sameFormat(t.format, format)) {
-        return t;
-      }
-    }
-    return this.create('public', format);
-  }
-
   remove(id: string): void {
     this.tables.delete(id);
   }
 
-  // Discards empty tables so abandoned rooms don't pile up.
-  prune(): void {
+  // Discards empty tables so abandoned rooms don't pile up. Returns the ids of
+  // the tables that were removed, so callers can drop any per-table bookkeeping.
+  prune(): string[] {
+    const removed: string[] = [];
     for (const [id, t] of this.tables) {
-      if (t.isEmpty()) this.tables.delete(id);
+      if (t.isEmpty()) {
+        this.tables.delete(id);
+        removed.push(id);
+      }
     }
+    return removed;
   }
 
   publicList(): LobbyEntry[] {
@@ -72,9 +66,4 @@ export class Lobby {
       rated: t.rated,
     }));
   }
-}
-
-function sameFormat(a: MatchFormat, b: MatchFormat): boolean {
-  if (a.kind !== b.kind) return false;
-  return a.kind === 'deals' ? a.deals === (b as typeof a).deals : a.target === (b as typeof a).target;
 }

@@ -6,10 +6,11 @@
 // swappable for a real database later.
 
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, createHash } from 'node:crypto';
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { DATA_DIR } from './datadir.ts';
+import { safeWrite } from './safewrite.ts';
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -46,18 +47,11 @@ const sessions = new Map<string, Session>(); // thash -> session
 
 // ---- persistence -----------------------------------------------------------
 
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${file}.tmp`;
-  await writeFile(tmp, data, 'utf8');
-  await rename(tmp, file);
-}
-
 async function saveUsers(): Promise<void> {
-  await atomicWrite(USERS_FILE, JSON.stringify([...usersById.values()]));
+  await safeWrite(USERS_FILE, JSON.stringify([...usersById.values()]));
 }
 async function saveSessions(): Promise<void> {
-  await atomicWrite(SESSIONS_FILE, JSON.stringify([...sessions.values()]));
+  await safeWrite(SESSIONS_FILE, JSON.stringify([...sessions.values()]));
 }
 
 export async function initAccounts(): Promise<void> {
@@ -98,12 +92,34 @@ async function verifyPassword(pw: string, stored: string): Promise<boolean> {
 const thash = (token: string): string => createHash('sha256').update(token).digest('hex');
 
 async function createSession(userId: string): Promise<string> {
+  pruneExpiredSessions(); // opportunistic cleanup on each new login/register
   const token = randomBytes(32).toString('hex');
   const h = thash(token);
   sessions.set(h, { thash: h, userId, createdAt: Date.now() });
   await saveSessions();
   return token;
 }
+
+// Drops sessions past their TTL. Returns how many were removed so callers can
+// decide whether to persist. Without this the map grows for every login that's
+// never explicitly logged out, lingering for the full TTL in memory and on disk.
+function pruneExpiredSessions(): number {
+  const cutoff = Date.now() - SESSION_TTL_MS;
+  let removed = 0;
+  for (const s of sessions.values()) {
+    if (s.createdAt <= cutoff && sessions.delete(s.thash)) removed++;
+  }
+  return removed;
+}
+
+// Periodic sweep so even an idle server (no new logins) sheds dead sessions.
+const sessionSweep = setInterval(
+  () => {
+    if (pruneExpiredSessions() > 0) void saveSessions();
+  },
+  60 * 60 * 1000,
+);
+sessionSweep.unref?.();
 
 // ---- public API ------------------------------------------------------------
 

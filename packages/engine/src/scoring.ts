@@ -3,11 +3,11 @@ import { cardsEqual } from './cards.ts';
 import { trumpsHighToLow } from './ordering.ts';
 
 // Base game values.
-const SUIT_BASE: Record<string, number> = { D: 9, H: 10, S: 11, C: 12 };
-const GRAND_BASE = 24;
+export const SUIT_BASE: Record<string, number> = { D: 9, H: 10, S: 11, C: 12 };
+export const GRAND_BASE = 24;
 
 // Null is scored at fixed values, never multiplied.
-const NULL_VALUES = {
+export const NULL_VALUES = {
   plain: 23,
   hand: 35,
   ouvert: 46,
@@ -18,6 +18,39 @@ export function baseValue(contract: Contract): number {
   if (contract.type === 'null') return NULL_VALUES.plain; // overridden in computeGameValue
   if (contract.type === 'grand') return GRAND_BASE;
   return SUIT_BASE[contract.suit];
+}
+
+// Extras that raise a suit/grand multiplier (or pick the null ladder rung).
+export interface PreviewOpts {
+  hand?: boolean;
+  schneider?: boolean;
+  schneiderAnnounced?: boolean;
+  schwarz?: boolean;
+  schwarzAnnounced?: boolean;
+  ouvert?: boolean;
+}
+
+// The game value to *display* for a contract before or during declaring: the
+// base value times the multiplier (matadors + the game itself + one per active
+// extra), or the fixed null ladder. This is the single source of truth the
+// declare panel and the how-to-play calculator both render, so neither has to
+// re-hardcode the base values or null rungs that computeGameValue scores with.
+// `matadors` is the with/without count (ignored for null).
+export function previewGameValue(contract: Contract, matadors: number, opts: PreviewOpts = {}): number {
+  if (contract.type === 'null') {
+    if (opts.hand && opts.ouvert) return NULL_VALUES.handOuvert;
+    if (opts.ouvert) return NULL_VALUES.ouvert;
+    if (opts.hand) return NULL_VALUES.hand;
+    return NULL_VALUES.plain;
+  }
+  let mult = matadors + 1;
+  if (opts.hand) mult += 1;
+  if (opts.schneider) mult += 1;
+  if (opts.schneiderAnnounced) mult += 1;
+  if (opts.schwarz) mult += 1;
+  if (opts.schwarzAnnounced) mult += 1;
+  if (opts.ouvert) mult += 1;
+  return baseValue(contract) * mult;
 }
 
 // "Matadors" (Spitzen): the run of consecutive top trumps the declarer holds,
@@ -81,6 +114,7 @@ export function computeGameValue(
   const schwarz = outcome.defenderTricks === 0;
   const madePrimary = points >= 61; // need more than half of 120
 
+  const base = baseValue(contract);
   const matadors = countMatadors(declarerCards, contract);
   let multiplier = matadors + 1; // +1 for the game itself
   if (announcements.hand) multiplier += 1;
@@ -90,13 +124,20 @@ export function computeGameValue(
   if (announcements.schwarzAnnounced) multiplier += 1;
   if (announcements.ouvert) multiplier += 1;
 
-  const value = baseValue(contract) * multiplier;
+  let value = base * multiplier;
 
-  // Loss conditions: failed to reach 61, OR overbid (game worth less than bid),
-  // OR announced schneider/schwarz but didn't deliver.
-  let won = madePrimary && value >= bid;
+  // Loss conditions: failed to reach 61, OR announced schneider/schwarz but
+  // didn't deliver, OR overbid (the realized value is below the bid).
+  let won = madePrimary;
   if (announcements.schneiderAnnounced && !schneider) won = false;
   if (announcements.schwarzAnnounced && !schwarz) won = false;
+  if (value < bid) {
+    // Overbid: the game is lost and charged at the lowest game level (a multiple
+    // of the base value) that reaches the bid, not at the value actually played.
+    won = false;
+    multiplier = Math.ceil(bid / base);
+    value = base * multiplier;
+  }
 
   return { won, value, multiplier, schneider, schwarz, cardPoints: points };
 }

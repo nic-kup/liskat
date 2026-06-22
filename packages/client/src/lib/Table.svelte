@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable } from './ws.ts';
-  import { cardId, nextBid, sortHand, countMatadors } from '@liskat/engine';
+  import { cardId, nextBid, sortHand, countMatadors, previewGameValue } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
   import Chat from './Chat.svelte';
@@ -53,17 +53,11 @@
   // The server sends the active player's remaining time once per update; we tick
   // locally so the countdown moves smoothly between updates.
   let clockTick = $state(0);
-  let turnBaseMs = 0;
-  let turnBaseAt = 0;
-  $effect(() => {
-    // re-capture whenever the server's snapshot changes
-    turnBaseMs = round?.turnRemainingMs ?? 0;
-    turnBaseAt = Date.now();
-  });
-  $effect(() => {
-    const iv = setInterval(() => (clockTick = Date.now()), 250);
-    return () => clearInterval(iv);
-  });
+  // The server's last reported remaining time, stamped with when we observed it.
+  // As a $derived this recomputes (capturing a fresh timestamp) exactly when the
+  // server snapshot changes — no effect mirroring server state into plain locals,
+  // so the countdown can't read a stale base for a tick after an update.
+  const clockBase = $derived({ ms: round?.turnRemainingMs ?? 0, at: Date.now() });
   // The seat whose live countdown we show.
   const clockSlot = $derived.by(() => {
     if (!round || round.turnRemainingMs == null) return -1;
@@ -72,13 +66,20 @@
     if (round.phase === 'declaring') return round.declarerSlot ?? -1;
     return -1;
   });
+  // Tick only while there's a live countdown to animate. An idle table (waiting
+  // room, game over, an untimed game) doesn't wake up 4x/second for nothing.
+  $effect(() => {
+    if (!timed || clockSlot < 0 || round?.turnRemainingMs == null) return;
+    const iv = setInterval(() => (clockTick = Date.now()), 250);
+    return () => clearInterval(iv);
+  });
   // The active player's clock, split into the per-move 10s and the reserve.
   // While base time remains it shows "Xs + Ys"; once it's eating into the
   // reserve it shows just the reserve, in red.
   const clockDisplay = $derived.by(() => {
     if (round?.turnRemainingMs == null || clockSlot < 0) return null;
     void clockTick; // re-evaluate on each tick
-    const total = Math.max(0, turnBaseMs - (Date.now() - turnBaseAt));
+    const total = Math.max(0, clockBase.ms - (Date.now() - clockBase.at));
     const reserve = round.banks?.[clockSlot] ?? 0;
     const base = total - reserve;
     if (base > 0) return { text: `${Math.ceil(base / 1000)}s + ${Math.ceil(reserve / 1000)}s`, reserve: false };
@@ -195,44 +196,42 @@
     declareContract(contract, { schneiderAnnounced: sch, schwarzAnnounced: schw, ouvert: annOpen });
   }
 
-  const SUIT_BASE: Record<string, number> = { D: 9, H: 10, S: 11, C: 12 };
+  // The contract object for the current selection (null when nothing picked).
+  const declContract = $derived.by<Contract | null>(() => {
+    if (!selGame) return null;
+    return (selGame === 'null' ? { type: 'null' } : selGame === 'grand' ? { type: 'grand' } : { type: 'suit', suit: selSuit }) as Contract;
+  });
 
   // Matadors estimated from the declarer's own cards (exact once the Skat is
   // taken; an estimate for a Hand game, where the Skat is unseen).
   const declMatadors = $derived.by(() => {
-    if (!round || !selGame || selGame === 'null') return { n: 0, withTop: false };
-    const contract = (selGame === 'grand' ? { type: 'grand' } : { type: 'suit', suit: selSuit }) as Contract;
-    const n = countMatadors(round.yourHand, contract);
+    if (!round || !declContract || declContract.type === 'null') return { n: 0, withTop: false };
+    const n = countMatadors(round.yourHand, declContract);
     const withTop = round.yourHand.some((c) => c.rank === 'J' && c.suit === 'C');
     return { n, withTop };
   });
 
-  // The game value for the current selection (the value you'd be declaring).
+  // The game value for the current selection, via the engine's shared preview so
+  // it can never drift from how the server actually scores the game.
   const declValue = $derived.by(() => {
-    if (!round || !selGame) return 0;
+    if (!round || !declContract) return 0;
     const isHand = !round.tookSkat;
-    if (selGame === 'null') return annOpen ? (isHand ? 59 : 46) : isHand ? 35 : 23;
-    const base = selGame === 'grand' ? 24 : SUIT_BASE[selSuit];
-    let mult = declMatadors.n + 1; // matadors + the game itself
-    if (isHand) {
-      mult += 1; // hand
-      let sch = annSchneider;
-      let schw = annSchwarz;
-      if (annOpen) schw = true;
-      if (schw) sch = true;
-      if (sch) mult += 1;
-      if (schw) mult += 1;
-      if (annOpen) mult += 1;
-    }
-    return base * mult;
+    // On a Hand game the chain Open ⇒ Schwarz ⇒ Schneider is announced; after
+    // taking the Skat none of those announcements apply.
+    const schw = isHand && (annSchwarz || annOpen);
+    const sch = isHand && (annSchneider || schw);
+    return previewGameValue(declContract, declMatadors.n, {
+      hand: isHand,
+      schneiderAnnounced: sch,
+      schwarzAnnounced: schw,
+      ouvert: annOpen,
+    });
   });
 
   const canDeclare = $derived(!!selGame);
 
   function confirmDeclare() {
-    if (!selGame) return;
-    const contract = (selGame === 'null' ? { type: 'null' } : selGame === 'grand' ? { type: 'grand' } : { type: 'suit', suit: selSuit }) as Contract;
-    declare(contract);
+    if (declContract) declare(declContract);
   }
 
   function onCardClick(card: Card) {

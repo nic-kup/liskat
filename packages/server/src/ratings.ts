@@ -14,10 +14,11 @@
 // data/ (gitignored), swappable for a database later.
 
 import { randomBytes } from 'node:crypto';
-import { readFile, writeFile, rename, mkdir } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DATA_DIR } from './datadir.ts';
 import { deleteMatchDetail } from './history.ts';
+import { safeWrite } from './safewrite.ts';
 
 const RATINGS_FILE = join(DATA_DIR, 'ratings.json');
 const MATCHES_FILE = join(DATA_DIR, 'matches.json');
@@ -65,18 +66,11 @@ let matches: MatchRecord[] = [];
 
 // ---- persistence -----------------------------------------------------------
 
-async function atomicWrite(file: string, data: string): Promise<void> {
-  await mkdir(DATA_DIR, { recursive: true });
-  const tmp = `${file}.tmp`;
-  await writeFile(tmp, data, 'utf8');
-  await rename(tmp, file);
-}
-
 async function saveRatings(): Promise<void> {
-  await atomicWrite(RATINGS_FILE, JSON.stringify(Object.fromEntries(ratings)));
+  await safeWrite(RATINGS_FILE, JSON.stringify(Object.fromEntries(ratings)));
 }
 async function saveMatches(): Promise<void> {
-  await atomicWrite(MATCHES_FILE, JSON.stringify(matches));
+  await safeWrite(MATCHES_FILE, JSON.stringify(matches));
 }
 
 export async function initRatings(): Promise<void> {
@@ -156,7 +150,10 @@ export async function recordMatch(typeKey: string, ranked: boolean, players: Mat
   let deltas = players.map(() => 0);
 
   if (ratedType) {
-    deltas = players.map((p, i) => {
+    // Unrounded deltas. With equal K these sum to exactly zero (the pairwise
+    // duels net out); provisional players carry a larger K, which intentionally
+    // breaks strict zero-sum for that match.
+    const raw = players.map((p, i) => {
       let expected = 0;
       let actual = 0;
       for (let j = 0; j < players.length; j++) {
@@ -165,8 +162,29 @@ export async function recordMatch(typeKey: string, ranked: boolean, players: Mat
         if (places[i] < places[j]) actual += 1;
         else if (places[i] === places[j]) actual += 0.5;
       }
-      return Math.round(kFor(before[i].games) * (actual - expected));
+      return kFor(before[i].games) * (actual - expected);
     });
+    deltas = raw.map((r) => Math.round(r));
+    // Independent rounding can leave the table non-zero-sum (e.g. +12.5/+0.5/−13
+    // → +13/+1/−13, net +1), inflating the rating pool over time. Re-distribute
+    // the rounding drift toward the unrounded total: shed each surplus +1 from
+    // the entry rounded down hardest, each deficit −1 from the one rounded up
+    // hardest. Exact zero-sum when all Ks match; minimal nudge otherwise.
+    let drift = Math.round(raw.reduce((a, b) => a + b, 0)) - deltas.reduce((a, b) => a + b, 0);
+    while (drift !== 0) {
+      const step = drift > 0 ? 1 : -1;
+      let best = 0;
+      let bestRes = step > 0 ? -Infinity : Infinity;
+      for (let i = 0; i < raw.length; i++) {
+        const res = raw[i] - deltas[i];
+        if (step > 0 ? res > bestRes : res < bestRes) {
+          bestRes = res;
+          best = i;
+        }
+      }
+      deltas[best] += step;
+      drift -= step;
+    }
     players.forEach((p, i) => {
       if (!p.userId) return;
       const byType = ratings.get(p.userId) ?? {};

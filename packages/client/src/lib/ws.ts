@@ -56,8 +56,10 @@ let queue: string[] = [];
 // Reconnect backoff and a grace period so a brief drop+reconnect doesn't flip
 // the status indicator to "connecting".
 let reconnectDelay = 1000;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let disconnectGrace: ReturnType<typeof setTimeout> | null = null;
 const DISCONNECT_GRACE_MS = 4000;
+const MAX_QUEUE = 64; // cap unsent messages so an extended outage can't grow it unbounded
 
 function wsUrl(): string {
   const env = import.meta.env.VITE_WS_URL as string | undefined;
@@ -66,9 +68,28 @@ function wsUrl(): string {
   return `${proto}://${location.host}/ws`;
 }
 
+// Schedules a single reconnect attempt with backoff. Guards against stacking
+// multiple timers (which would spawn duplicate sockets, each scheduling more).
+function scheduleReconnect(): void {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, reconnectDelay);
+  reconnectDelay = Math.min(Math.round(reconnectDelay * 1.7), 10000);
+}
+
 export function connect(): void {
-  if (socket) return;
-  const ws = new WebSocket(wsUrl());
+  // A live socket or a pending reconnect already covers us — never open a second.
+  if (socket || reconnectTimer) return;
+  let ws: WebSocket;
+  try {
+    ws = new WebSocket(wsUrl());
+  } catch {
+    // Constructor can throw on a malformed URL; retry rather than stall forever.
+    scheduleReconnect();
+    return;
+  }
   socket = ws;
 
   ws.onopen = () => {
@@ -89,7 +110,8 @@ export function connect(): void {
   };
 
   ws.onclose = () => {
-    socket = null;
+    if (socket === ws) socket = null;
+    ws.onmessage = null; // detach the handler closure on the dead socket
     // Only show "connecting" if we don't get back within the grace window.
     if (!disconnectGrace) {
       disconnectGrace = setTimeout(() => {
@@ -97,8 +119,11 @@ export function connect(): void {
         conn.update((s) => ({ ...s, connected: false }));
       }, DISCONNECT_GRACE_MS);
     }
-    setTimeout(connect, reconnectDelay);
-    reconnectDelay = Math.min(Math.round(reconnectDelay * 1.7), 10000);
+    scheduleReconnect();
+  };
+
+  ws.onerror = () => {
+    /* swallow; onclose drives the reconnect */
   };
 
   ws.onmessage = (ev) => {
@@ -137,7 +162,10 @@ export function connect(): void {
 function send(obj: unknown): void {
   const data = JSON.stringify(obj);
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(data);
-  else queue.push(data);
+  else {
+    queue.push(data);
+    if (queue.length > MAX_QUEUE) queue.shift(); // drop the oldest unsent message
+  }
 }
 
 export function setNick(nick: string): void {
@@ -277,7 +305,11 @@ export function logout(): void {
   if (token) void authPost('logout', { token });
   setLs(SESSION_KEY, null);
   setLs(ACCOUNT_KEY, null);
-  conn.update((s) => ({ ...s, account: null }));
+  // Forget the stored player id too: it points at the account's seat, so without
+  // clearing it the reconnect below would `resume` straight back into the
+  // just-logged-out identity. Clearing it forces a fresh anonymous welcome.
+  setLs(PID_KEY, null);
+  conn.update((s) => ({ ...s, account: null, playerId: null, view: null }));
   // Drop the account identity on the server by reconnecting anonymously.
   if (socket) socket.close();
 }

@@ -73,7 +73,9 @@ test('failing to reach 61 loses the game', () => {
 test('overbid: game value below the bid loses even at 61+', () => {
   const diamonds: Contract = { type: 'suit', suit: 'D' };
   const declarerCards = [c('SJ')]; // missing CJ, holds SJ => without 1
-  // diamonds base 9, without 1 => 9 * (1 + 1 game) = 18, but bid 24 -> overbid
+  // diamonds base 9, without 1 => 9 * (1 + 1 game) = 18, but bid 24 -> overbid.
+  // A lost game is charged at the lowest diamond level that reaches the bid:
+  // ceil(24 / 9) * 9 = 27.
   const r = computeGameValue(
     diamonds,
     declarerCards,
@@ -81,7 +83,7 @@ test('overbid: game value below the bid loses even at 61+', () => {
     noAnn,
     24,
   );
-  assert.equal(r.value, 18);
+  assert.equal(r.value, 27);
   assert.ok(!r.won);
 });
 

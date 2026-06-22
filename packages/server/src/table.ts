@@ -95,6 +95,26 @@ export class Table {
     setTimeout(fn, ms);
   };
 
+  // Runs a deferred callback (a trick-reveal/between-deal/timeout tick) and, if
+  // it throws, ends this one game instead of letting an unhandled exception in a
+  // timer take down the whole single-process server. Returns false on failure.
+  private runGuarded(fn: () => void): boolean {
+    try {
+      fn();
+      return true;
+    } catch (e) {
+      console.error(`[table ${this.id}] aborting game after error in deferred step:`, e);
+      try {
+        this.status = 'over';
+        this.clearTurnTimer();
+        this.onChange();
+      } catch {
+        /* last-ditch: never rethrow from the abort path */
+      }
+      return false;
+    }
+  }
+
   constructor(id: string, visibility: 'private' | 'public', format: MatchFormat) {
     this.id = id;
     this.visibility = visibility;
@@ -304,20 +324,18 @@ export class Table {
     if (this.status !== 'playing' || !this.round) return;
     if (this.activeSlot() !== slot) return; // state already moved on
     this.timeBank[slot] = 0;
-    const action = this.randomAction(slot);
-    if (action) {
-      const bidBefore = this.round.bidding?.currentBid ?? 0;
-      try {
-        this.round = applyAction(this.round, action);
-      } catch {
-        return;
+    this.runGuarded(() => {
+      const action = this.randomAction(slot);
+      if (action) {
+        const bidBefore = this.round!.bidding?.currentBid ?? 0;
+        this.round = applyAction(this.round!, action);
+        this.recordAction(action, bidBefore);
       }
-      this.recordAction(action, bidBefore);
-    }
-    this.turnStart = 0;
-    this.advance();
-    this.armTimer();
-    this.onChange();
+      this.turnStart = 0;
+      this.advance();
+      this.armTimer();
+      this.onChange();
+    });
   }
 
   // A legal move to play when a player runs out of time.
@@ -360,10 +378,14 @@ export class Table {
         });
       }
       this.schedule(() => {
-        this.round = applyAction(this.round!, { type: 'collect' });
-        if (this.round.phase === 'finished') this.endRound();
-        this.armTimer();
-        this.onChange();
+        // The game may have ended (a player left) during the reveal delay.
+        if (this.status !== 'playing' || !this.round) return;
+        this.runGuarded(() => {
+          this.round = applyAction(this.round!, { type: 'collect' });
+          if (this.round.phase === 'finished') this.endRound();
+          this.armTimer();
+          this.onChange();
+        });
       }, TRICK_REVEAL_MS);
     } else if (r.phase === 'finished') {
       this.endRound();
@@ -394,14 +416,18 @@ export class Table {
     this.status = 'between';
     this.clearTurnTimer();
     this.schedule(() => {
-      this.dealIndex += 1;
-      if (this.match!.finished) {
-        this.status = 'over';
-        this.clearTurnTimer();
-      } else {
-        this.startDeal();
-      }
-      this.onChange();
+      // Don't resurrect a game that was abandoned/ended during the break.
+      if (this.status !== 'between' || this.seats.some((s) => !s)) return;
+      this.runGuarded(() => {
+        this.dealIndex += 1;
+        if (this.match!.finished) {
+          this.status = 'over';
+          this.clearTurnTimer();
+        } else {
+          this.startDeal();
+        }
+        this.onChange();
+      });
     }, BETWEEN_DEALS_MS);
   }
 
