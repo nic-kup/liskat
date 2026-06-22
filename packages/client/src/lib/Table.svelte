@@ -8,12 +8,6 @@
   import History from './History.svelte';
   import { identityForSlot } from './players.ts';
 
-  let hintsOpen = $state(localStorage.getItem('liskat.hints') !== 'closed');
-  function toggleHints() {
-    hintsOpen = !hintsOpen;
-    localStorage.setItem('liskat.hints', hintsOpen ? 'open' : 'closed');
-  }
-
   let confirmLeave = $state(false);
   // Leaving forfeits rating only in a ranked game in progress — i.e. a rated
   // game where every player has an account (view.ranked already encodes that).
@@ -216,8 +210,12 @@
   // taken; an estimate for a Hand game, where the Skat is unseen).
   const declMatadors = $derived.by(() => {
     if (!round || !declContract || declContract.type === 'null') return { n: 0, withTop: false };
-    const n = countMatadors(round.yourHand, declContract);
-    const withTop = round.yourHand.some((c) => c.rank === 'J' && c.suit === 'C');
+    // During the merged discard step the hand still holds the two picked-up Skat
+    // cards; exclude the ones about to be discarded so matadors match the hand
+    // that will actually be played (and update live as the discard changes).
+    const hand = round.declareStep === 'discard' ? round.yourHand.filter((c) => !selected.includes(cardId(c))) : round.yourHand;
+    const n = countMatadors(hand, declContract);
+    const withTop = hand.some((c) => c.rank === 'J' && c.suit === 'C');
     return { n, withTop };
   });
 
@@ -305,25 +303,6 @@
   }
 </script>
 
-{#snippet hints()}
-  <div class="hints">
-    <button class="hint-toggle" onclick={toggleHints}>{hintsOpen ? '▾' : '▸'} Game hints</button>
-    {#if hintsOpen}
-      <div class="hint-body">
-        <div class="hline"><b>Game values:</b> ♦ 9 · ♥ 10 · ♠ 11 · ♣ 12 · Grand 24 · Null 23</div>
-        <ul>
-          <li><b>Suit</b> — that suit plus all four Jacks are trumps</li>
-          <li><b>Grand</b> — only the four Jacks are trumps</li>
-          <li><b>Null</b> — no trumps; you win by losing every trick</li>
-          <li><b>Open</b> — play with your hand face-up for a higher value. Null Open is common; a suit/Grand Open also needs a Hand game with announced Schwarz.</li>
-        </ul>
-        <div class="hline"><b>Clock (⏱):</b> 10 seconds per move plus a personal time bank<br>30s to start, +10s each deal.</div>
-        <div class="hline muted">Your bid = base × (matadors + game + extras). A bid only promises a value — you choose the actual game after winning.</div>
-      </div>
-    {/if}
-  </div>
-{/snippet}
-
 <svelte:window onkeydown={onKey} />
 
 {#if view}
@@ -333,9 +312,6 @@
       <button class="wordmark" style="font-weight:800; font-size:18px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={onLeave} title="Home">liskat</button>
       <div class="info">
         {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
-        · deal {view.dealIndex + 1}
-        {#if round && view.status !== 'waiting'}· <strong class="bidtag">bid {round.phase === 'bidding' ? round.bidding!.currentBid || '—' : round.bid}</strong>{/if}
-        {#if round?.contract}· <strong>{contractLabel(round.contract)}</strong>{/if}
       </div>
     </div>
 
@@ -456,7 +432,6 @@
             {:else}
               <p class="prompt muted">Bidding — {slotName(round.bidding!.askerSlot)} to call…</p>
             {/if}
-            {@render hints()}
           </div>
         {:else if round?.phase === 'declaring'}
           {#if round.declarerSlot === mySlot}
@@ -467,7 +442,6 @@
                   <button class="primary" onclick={takeSkat}>Pick up Skat</button>
                   <button onclick={playHand}>Play hand</button>
                 </div>
-                {@render hints()}
               {:else}
                 {#if round.declareStep === 'discard'}
                   <h3>Name your game, and tap 2 cards below for the Skat ({selected.length}/2)</h3>
@@ -511,7 +485,6 @@
                     <p class="prompt muted">Pick a game to see its value.</p>
                   {/if}
                 </div>
-                {@render hints()}
               {/if}
             </div>
           {:else}
@@ -616,9 +589,6 @@
     flex-direction: column;
     padding: 12px 12px 6px;
     box-sizing: border-box;
-  }
-  .bidtag {
-    color: #ffd54a;
   }
   .wordmark:hover {
     color: #ffa733 !important;
@@ -949,37 +919,11 @@
     background: rgba(255, 255, 255, 0.16);
     color: #f2f5f3;
   }
-  .hints {
-    margin-top: 14px;
-    padding-top: 10px;
-    border-top: 1px solid rgba(255, 255, 255, 0.1);
-    font-size: 13px;
-    color: var(--muted);
-    text-align: left;
-  }
-  .hint-toggle {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 13px;
-    padding: 0;
-  }
-  .hint-body {
-    margin-top: 6px;
-  }
-  .hints ul {
-    margin: 6px 0;
-    padding-left: 18px;
-  }
-  .hints li {
-    margin: 3px 0;
-  }
+  /* Sits just above the player's hand, hugging the right edge. */
   .lasttrick {
     position: fixed;
     right: 16px;
-    top: 50%;
-    transform: translateY(-50%);
+    bottom: 150px;
     text-align: center;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1030,9 +974,6 @@
     gap: 8px;
     justify-content: center;
     margin-top: 6px;
-  }
-  .hline {
-    margin: 3px 0;
   }
   .trick {
     display: flex;

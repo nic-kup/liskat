@@ -59,10 +59,12 @@
 </div>
 
 <style>
+  /* Anchored below the opponent seats (with ~50px buffer); the scroll is capped
+     so the panel never reaches the last-trick box hugging the bottom-right. */
   .history {
     position: fixed;
     right: 16px;
-    top: 70px;
+    top: 225px;
     width: 230px;
     z-index: 6;
     background: rgba(0, 0, 0, 0.4);
@@ -71,6 +73,12 @@
     backdrop-filter: blur(6px);
     font-size: 13px;
     overflow: hidden;
+  }
+  /* No room for the history panel on a phone — the seats and hand take it all. */
+  @media (max-width: 980px) {
+    .history {
+      display: none;
+    }
   }
   .toggle {
     width: 100%;
@@ -83,7 +91,9 @@
     font-size: 13px;
   }
   .scroll {
-    max-height: 30vh;
+    /* Cap so the panel's bottom stays clear of the last-trick box (~250px up
+       from the bottom) plus a buffer. */
+    max-height: calc(100vh - 600px);
     overflow-y: auto;
     padding: 0 8px 8px;
   }

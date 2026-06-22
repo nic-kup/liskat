@@ -29,12 +29,13 @@
 </div>
 
 <style>
-  /* Anchored at the top so the toggle bar stays put whether open or collapsed;
-     when open it fills the available height instead of hugging its content. */
+  /* Anchored below the opponent seats (with ~50px buffer) so the toggle bar
+     stays put whether open or collapsed; when open it fills the space down to
+     ~50px above the player's hand. */
   .chat {
     position: fixed;
     left: 16px;
-    top: 70px;
+    top: 225px;
     width: 220px;
     z-index: 6;
     display: flex;
@@ -47,8 +48,7 @@
     overflow: hidden;
   }
   .chat.open {
-    height: calc(100vh - 160px);
-    max-height: 600px;
+    bottom: 200px;
   }
   .toggle {
     width: 100%;
