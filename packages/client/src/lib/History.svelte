@@ -5,13 +5,19 @@
   interface Props {
     history: HistoryEntry[];
     players: PlayerView[];
+    matchOver?: boolean;
   }
-  let { history, players }: Props = $props();
+  let { history, players, matchOver = false }: Props = $props();
   let open = $state(false);
   const mySlot = $derived(players.find((p) => p.you)?.slot ?? -1);
+  // Once the match is over, open the panel — on a phone it's shown centered as
+  // the post-match summary.
+  $effect(() => {
+    if (matchOver) open = true;
+  });
 </script>
 
-<div class="history">
+<div class="history" class:over={matchOver}>
   <button class="toggle" onclick={() => (open = !open)}>{open ? '▾' : '▸'} History ({history.length})</button>
   {#if open}
     <div class="scroll">
@@ -74,10 +80,23 @@
     font-size: 13px;
     overflow: hidden;
   }
-  /* No room for the history panel on a phone — the seats and hand take it all. */
+  /* No room for the history panel on a phone — the seats and hand take it all.
+     The exception is after the match, when it's the summary: show it centered. */
   @media (max-width: 980px) {
     .history {
       display: none;
+    }
+    .history.over {
+      display: block;
+      top: 50%;
+      left: 50%;
+      right: auto;
+      transform: translate(-50%, -50%);
+      width: min(92vw, 320px);
+      z-index: 200;
+    }
+    .history.over .scroll {
+      max-height: 60vh;
     }
   }
   .toggle {
@@ -91,21 +110,25 @@
     font-size: 13px;
   }
   .scroll {
-    /* Cap so the panel's bottom stays clear of the last-trick box (~250px up
-       from the bottom) plus a buffer. */
-    max-height: calc(100vh - 600px);
+    /* Cap so the panel's bottom stays clear of the last-trick box plus a
+       buffer. */
+    max-height: calc(100vh - 640px);
     overflow-y: auto;
     padding: 0 8px 8px;
   }
   table {
     width: 100%;
     border-collapse: collapse;
+    /* Monospace + tabular figures so a row's width is predictable (≤2ch game,
+       ≤3ch score) and its contents never wrap to a second line. */
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     font-variant-numeric: tabular-nums;
   }
   th,
   td {
-    padding: 3px 5px;
+    padding: 3px 4px;
     text-align: right;
+    white-space: nowrap;
   }
   th:first-child,
   td.deal {

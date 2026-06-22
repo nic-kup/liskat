@@ -75,13 +75,26 @@
     if (round?.turnRemainingMs == null || clockSlot < 0) return null;
     void clockTick; // re-evaluate on each tick
     const total = Math.max(0, clockBase.ms - (Date.now() - clockBase.at));
-    const reserve = round.banks?.[clockSlot] ?? 0;
-    const base = total - reserve;
-    if (base > 0) return { text: `${Math.ceil(base / 1000)}s + ${Math.ceil(reserve / 1000)}s`, reserve: false };
-    return { text: `${Math.ceil(total / 1000)}s`, reserve: true };
+    const bank = round.banks?.[clockSlot] ?? 0;
+    const base = total - bank;
+    const inReserve = base <= 0;
+    // Always "base + reserve" (zero-padded) so the width never changes; once the
+    // per-move time is gone it counts into the reserve and turns red.
+    return { text: `${clk(inReserve ? 0 : base)} + ${clk(inReserve ? total : bank)}`, reserve: inReserve };
   });
+  // mm-less "Xs" with a 2-digit pad so every clock is the same width.
+  function clk(ms: number): string {
+    return `${String(Math.ceil(Math.max(0, ms) / 1000)).padStart(2, '0')}s`;
+  }
   function bankSeconds(slot: number): number {
     return Math.ceil((round?.banks?.[slot] ?? 0) / 1000);
+  }
+  // The clock for any seat: live two-part for the player on the clock; for the
+  // others their standard next-move base (10s) plus their bank, so the box is
+  // the same width whoever's turn it is.
+  function clockFor(slot: number): { text: string; reserve: boolean; active: boolean } {
+    if (clockSlot === slot && clockDisplay) return { ...clockDisplay, active: true };
+    return { text: `10s + ${clk((round?.banks?.[slot] ?? 0))}`, reserve: false, active: false };
   }
 
   // The seat currently "speaking" during the auction (for highlighting).
@@ -335,28 +348,27 @@
         {#each opponents as p}
           {@const id = identityForSlot(p.slot)}
           {@const say = round?.phase === 'bidding' ? bidSay(p.role) : ''}
-          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
+          <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot} class:declarer={round?.declarerSlot === p.slot}>
             <div class="who">
+              {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
             </div>
             <div class="statline">
-              {#if timed && clockSlot === p.slot && clockDisplay}
-                <span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>
-              {:else if timed && round}
-                <span class="clock big bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>
+              <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
+              <span class="vsep"></span>
+              {#if timed && round}
+                {@const c = clockFor(p.slot)}
+                <span class="clock big" class:bank={!c.active} class:low={c.reserve}>⏱ {c.text}</span>
               {:else}
                 <span class="clock big bank">⏱ —</span>
               {/if}
-              <span class="vsep"></span>
-              <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
             </div>
             <div class="declline">
-              <span class="dcell dealer-cell">{#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}</span>
-              <span class="vsep"></span>
-              <span class="dcell bid-cell">{#if round?.declarerSlot === p.slot}{round.bid}{/if}</span>
-              <span class="vsep"></span>
-              <span class="dcell game-cell">{#if round?.declarerSlot === p.slot}{contractLabel(round.contract)}{/if}</span>
+              {#if round?.declarerSlot === p.slot}
+                <span class="bid-cell">{round.bid}</span>
+                <span class="game-cell">{contractLabel(round.contract)}</span>
+              {/if}
             </div>
             <div class="modline">{declarerMods(p.slot)}</div>
             {#key say}
@@ -512,7 +524,7 @@
         <div class="who">
           {#if dealerSlot === mySlot}<span class="dealer-chip" title="dealer">D</span>{/if}
           <span class="marker" style="color:{myIdentity.color}">{myIdentity.marker}</span>
-          {#if timed && clockSlot === mySlot && clockDisplay}<span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if timed && round}<span class="clock big bank" title="time bank">⏱ {bankSeconds(mySlot)}s</span>{:else}<strong>{me?.nick}</strong>{/if}
+          {#if timed && round}{@const c = clockFor(mySlot)}<span class="clock big" class:bank={!c.active} class:low={c.reserve}>⏱ {c.text}</span>{:else}<strong>{me?.nick}</strong>{/if}
           {#if round?.declarerSlot === mySlot}<span class="badge">Declarer · {round.bid}</span>{/if}
           {#if round?.phase === 'playing' && isMyTurn()}
             <span class="turnhint active">your turn</span>
@@ -559,7 +571,7 @@
         </div>
       {/if}
 
-      <History history={view.history} players={view.players} />
+      <History history={view.history} players={view.players} matchOver={view.status === 'over'} />
       <Chat messages={view.chat} />
     {/if}
 
@@ -613,7 +625,8 @@
   }
   .opponents {
     display: flex;
-    justify-content: space-around;
+    justify-content: center;
+    gap: 40px;
     margin-top: 8px;
   }
   .seat,
@@ -725,13 +738,18 @@
   .turnhint.active {
     color: #ffd54a;
   }
-  /* Opponent seat: name, then fixed-slot lines for clock|score and
-     dealer|bid|game, then the announced modifiers. Each slot is always present
+  /* Opponent seat: name (with dealer chip), then score | clock, then the
+     declarer's bid + game, then announced modifiers. Every line keeps its space
      (filled or blank) so the layout never shifts. */
   .seat {
-    min-width: 196px;
+    min-width: 210px;
     text-align: center;
-    background: rgba(0, 0, 0, 0.18);
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid transparent;
+  }
+  .seat.declarer {
+    border-color: rgba(255, 213, 74, 0.45);
+    background: rgba(255, 213, 74, 0.06);
   }
   .seat .who {
     justify-content: center;
@@ -740,34 +758,30 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 12px;
-    margin-top: 5px;
+    gap: 14px;
+    margin-top: 6px;
+  }
+  .statline .score {
+    background: none;
+    padding: 0;
+    font-size: 24px;
+    font-weight: 700;
+    color: #f2f5f3;
   }
   .declline {
     display: flex;
-    align-items: center;
+    align-items: baseline;
     justify-content: center;
-    gap: 10px;
+    gap: 8px;
     margin-top: 6px;
     min-height: 22px;
-    font-size: 14px;
-    color: var(--muted);
-  }
-  .dcell {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .dealer-cell {
-    min-width: 20px;
+    font-size: 15px;
   }
   .bid-cell {
-    min-width: 26px;
     font-weight: 700;
     color: #ffd54a;
   }
   .game-cell {
-    min-width: 72px;
     color: #f2f5f3;
   }
   .vsep {
@@ -919,11 +933,11 @@
     background: rgba(255, 255, 255, 0.16);
     color: #f2f5f3;
   }
-  /* Sits just above the player's hand, hugging the right edge. */
+  /* Sits above the player's hand, hugging the right edge, with breathing room. */
   .lasttrick {
     position: fixed;
     right: 16px;
-    bottom: 150px;
+    bottom: 200px;
     text-align: center;
     background: rgba(0, 0, 0, 0.35);
     border: 1px solid rgba(255, 255, 255, 0.1);
