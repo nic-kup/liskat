@@ -566,7 +566,17 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse): Promise<v
   try {
     if (filePath === CLIENT_DIR || (await stat(filePath)).isDirectory()) filePath = join(filePath, 'index.html');
     const body = await readFile(filePath);
-    res.writeHead(200, { 'content-type': MIME[extname(filePath)] ?? 'application/octet-stream' });
+    // Vite's /assets are content-hashed → cache forever. Card art and other
+    // static files rarely change → cache a week so they aren't re-fetched every
+    // visit. index.html must stay fresh so deploys are picked up.
+    const ext = extname(filePath);
+    const cache =
+      ext === '.html'
+        ? 'no-cache'
+        : rel.startsWith('assets/')
+          ? 'public, max-age=31536000, immutable'
+          : 'public, max-age=604800';
+    res.writeHead(200, { 'content-type': MIME[ext] ?? 'application/octet-stream', 'cache-control': cache });
     res.end(body);
   } catch {
     // Single-page app: unknown paths fall back to index.html.

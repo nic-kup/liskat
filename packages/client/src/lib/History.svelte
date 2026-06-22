@@ -27,7 +27,9 @@
             <th>#</th>
             {#each players as p}
               {@const id = identityForSlot(p.slot)}
-              <th class:mine={p.slot === mySlot}><span class="marker" style="color:{id.color}">{id.marker}</span></th>
+              <th class:mine={p.slot === mySlot}>
+                <span class="marker" style="color:{id.color}">{id.marker}</span>{#if matchOver}<span class="hname"> {p.nick}</span>{/if}
+              </th>
             {/each}
           </tr>
         </thead>
@@ -36,10 +38,11 @@
             {@const prev = i > 0 ? history[i - 1].scores : [0, 0, 0]}
             <tr>
               <td class="deal">{h.deal}</td>
-              {#each [0, 1, 2] as slot}
+              {#each players as p}
+                {@const slot = p.slot}
                 {@const d = h.scores[slot] - prev[slot]}
                 <td class:declarer={h.declarerSlot === slot} class:mine={slot === mySlot}>
-                  {#if h.declarerSlot === slot}<span class="tag" class:won={h.won} class:lost={!h.won}>{h.short}{h.won ? '✓' : '✗'}</span>{/if}
+                  {#if matchOver && h.declarerSlot === slot}<span class="tag" class:won={h.won} class:lost={!h.won}>{h.short}{h.won ? '✓' : '✗'}</span>{/if}
                   {#if d !== 0}<span class="delta" class:won={d > 0} class:lost={d < 0}>{d > 0 ? '+' : ''}{d}</span>{/if}
                 </td>
               {/each}
@@ -53,8 +56,8 @@
           <tfoot>
             <tr class="totals">
               <td class="deal">Σ</td>
-              {#each [0, 1, 2] as slot}
-                <td class:mine={slot === mySlot}>{history[history.length - 1].scores[slot]}</td>
+              {#each players as p}
+                <td class:mine={p.slot === mySlot}>{history[history.length - 1].scores[p.slot]}</td>
               {/each}
             </tr>
           </tfoot>
@@ -79,6 +82,19 @@
     backdrop-filter: blur(6px);
     font-size: 13px;
     overflow: hidden;
+  }
+  /* After the match it's the full summary (names along the top), so give it room
+     to breathe and let it grow taller. */
+  .history.over {
+    width: auto;
+    min-width: 240px;
+    max-width: 380px;
+  }
+  .history.over .scroll {
+    max-height: 70vh;
+  }
+  .hname {
+    font-weight: 600;
   }
   /* No room for the history panel on a phone — the seats and hand take it all.
      The exception is after the match, when it's the summary: show it centered. */
@@ -112,7 +128,7 @@
   .scroll {
     /* Cap so the panel's bottom stays clear of the last-trick box plus a
        buffer. */
-    max-height: calc(100vh - 640px);
+    max-height: calc(100vh - 700px);
     overflow-y: auto;
     padding: 0 8px 8px;
   }
