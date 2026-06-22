@@ -1,6 +1,7 @@
 <script lang="ts">
   import { page } from './ui.ts';
   import { previewGameValue, SUIT_BASE, GRAND_BASE, type Contract } from '@liskat/engine';
+  import SuitPip from './SuitPip.svelte';
 
   // Card faces are served from /cards/french/<ID>.svg.
   const EYES = [
@@ -20,10 +21,10 @@
   // --- interactive score calculator ---
   // Base values come from the engine so they can't drift from real scoring.
   const SUITS = [
-    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D, sym: '♦', red: true },
-    { key: 'H', label: 'Hearts', base: SUIT_BASE.H, sym: '♥', red: true },
-    { key: 'S', label: 'Spades', base: SUIT_BASE.S, sym: '♠', red: false },
-    { key: 'C', label: 'Clubs', base: SUIT_BASE.C, sym: '♣', red: false },
+    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D },
+    { key: 'H', label: 'Hearts', base: SUIT_BASE.H },
+    { key: 'S', label: 'Spades', base: SUIT_BASE.S },
+    { key: 'C', label: 'Clubs', base: SUIT_BASE.C },
   ];
   const JACK_IDS: Record<string, string> = { C: 'CJ', S: 'SJ', H: 'HJ', D: 'DJ' };
   const JORDER = ['C', 'S', 'H', 'D']; // matador order, top first (J♣)
@@ -225,50 +226,65 @@
 
     <div class="calc">
       <div class="calc-row">
+        <span class="calc-label">Skat<small>first decision</small></span>
+        <div class="opts">
+          <button class:sel={!hand} onclick={() => setHand(false)}>Pick up Skat</button>
+          <button class:sel={hand} onclick={() => setHand(true)}>Play hand</button>
+        </div>
+      </div>
+
+      <div class="calc-row">
         <span class="calc-label">Game</span>
         <div class="opts">
           {#each SUITS as s}
-            <button class="suitopt" class:red={s.red} class:sel={game === 'suit' && suit === s.key} onclick={() => { setGame('suit'); suit = s.key; }} aria-label={s.label}>{s.sym}</button>
+            <button class="suitopt" class:sel={game === 'suit' && suit === s.key} onclick={() => { setGame('suit'); suit = s.key; }} aria-label={s.label}>
+              <SuitPip suit={s.key as 'D' | 'H' | 'S' | 'C'} />
+            </button>
           {/each}
           <button class:sel={game === 'grand'} onclick={() => setGame('grand')}>Grand</button>
           <button class:sel={game === 'null'} onclick={() => setGame('null')}>Null</button>
         </div>
       </div>
 
-      {#if game !== 'null'}
-        <div class="calc-row">
-          <span class="calc-label">Jacks you hold</span>
-          <div class="jacks">
+      <div class="calc-row">
+        <span class="calc-label">Jacks you hold</span>
+        <div class="jacks">
+          {#if game === 'null'}
+            <span class="calc-na">Jacks don’t matter in a Null game.</span>
+          {:else}
             {#each JORDER as s}
               <button class="jackbtn" class:off={!jacks[s]} onclick={() => toggleJack(s)} aria-pressed={jacks[s]}>
                 <img src="/cards/french/{JACK_IDS[s]}.svg" alt={JACK_IDS[s]} />
               </button>
             {/each}
-          </div>
+          {/if}
         </div>
-      {/if}
+      </div>
 
       <div class="calc-row">
         <span class="calc-label">Announced<small>before play</small></span>
         <div class="opts">
-          <button class:sel={hand} onclick={() => setHand(!hand)}>Hand</button>
           {#if game !== 'null'}
-            <button class:sel={schneiderAnn} onclick={() => setSchneiderAnn(!schneiderAnn)}>Schneider announced</button>
-            <button class:sel={schwarzAnn} onclick={() => setSchwarzAnn(!schwarzAnn)}>Schwarz announced</button>
+            <button class:sel={schneiderAnn} disabled={!hand} onclick={() => setSchneiderAnn(!schneiderAnn)}>Schneider announced</button>
+            <button class:sel={schwarzAnn} disabled={!hand} onclick={() => setSchwarzAnn(!schwarzAnn)}>Schwarz announced</button>
+            <button class:sel={ouvert} disabled={!hand} onclick={() => setOpen(!ouvert)}>Open</button>
+          {:else}
+            <button class:sel={ouvert} onclick={() => setOpen(!ouvert)}>Open</button>
           {/if}
-          <button class:sel={ouvert} onclick={() => setOpen(!ouvert)}>Open</button>
         </div>
       </div>
 
-      {#if game !== 'null'}
-        <div class="calc-row">
-          <span class="calc-label">Achieved<small>during play</small></span>
-          <div class="opts">
+      <div class="calc-row">
+        <span class="calc-label">Achieved<small>during play</small></span>
+        <div class="opts">
+          {#if game !== 'null'}
             <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
             <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
-          </div>
+          {:else}
+            <span class="calc-na">A Null is won or lost — nothing is scored in play.</span>
+          {/if}
         </div>
-      {/if}
+      </div>
 
       <div class="calc-out">
         <div class="calc-value">{calc.value}</div>
@@ -343,21 +359,45 @@
     color: #fff;
     font-weight: 600;
   }
+  .opts button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .opts button:disabled:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+  /* Suit options are little card-faced tiles so the pip matches the deck. */
   .opts button.suitopt {
-    font-size: 19px;
-    line-height: 1;
-    padding: 7px 13px;
-    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+    width: 40px;
+    height: 38px;
+    background: #fffdf7;
+    border-color: #d8d2c4;
   }
-  .opts button.suitopt.red {
-    color: #ff6b6b;
+  .opts button.suitopt:hover {
+    background: #fff;
   }
-  .opts button.suitopt.red.sel {
-    color: #fff;
+  .opts button.suitopt.sel {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
+    background: #fffdf7;
+  }
+  .calc-na {
+    color: var(--muted);
+    font-size: 13px;
+    padding-top: 7px;
+    font-style: italic;
   }
   .jacks {
     display: flex;
     gap: 8px;
+    align-items: center;
+    /* Match the Jack-card height so the row (and box) keeps a steady height even
+       when a Null game replaces the cards with a short note. */
+    min-height: 73px;
   }
   .jackbtn {
     background: none;
@@ -416,6 +456,9 @@
   .calc-out {
     margin-top: 14px;
     text-align: center;
+    /* Reserve space for the tallest output (value + 3 breakdown lines) so the
+       box doesn't jump when switching between Null and a suit/Grand game. */
+    min-height: 118px;
   }
   .calc-value {
     font-size: 44px;

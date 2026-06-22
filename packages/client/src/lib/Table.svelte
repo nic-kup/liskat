@@ -3,6 +3,7 @@
   import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
+  import SuitPip from './SuitPip.svelte';
   import Chat from './Chat.svelte';
   import History from './History.svelte';
   import { identityForSlot } from './players.ts';
@@ -104,12 +105,12 @@
   let selGame = $state<'' | 'suit' | 'grand' | 'null'>('');
   let selSuit = $state<'C' | 'S' | 'H' | 'D'>('C');
 
-  // Suit picker glyphs (red for ♦♥, dark for ♠♣) for the game chooser.
-  const SUIT_GLYPHS: { k: 'D' | 'H' | 'S' | 'C'; sym: string; name: string; red: boolean }[] = [
-    { k: 'D', sym: '♦', name: 'Diamonds', red: true },
-    { k: 'H', sym: '♥', name: 'Hearts', red: true },
-    { k: 'S', sym: '♠', name: 'Spades', red: false },
-    { k: 'C', sym: '♣', name: 'Clubs', red: false },
+  // Suit options for the game chooser; the pip itself is drawn by SuitPip.
+  const SUIT_GLYPHS: { k: 'D' | 'H' | 'S' | 'C'; name: string }[] = [
+    { k: 'D', name: 'Diamonds' },
+    { k: 'H', name: 'Hearts' },
+    { k: 'S', name: 'Spades' },
+    { k: 'C', name: 'Clubs' },
   ];
 
   $effect(() => {
@@ -438,7 +439,9 @@
                 <div class="dchoose">
                   <div class="drow">
                     {#each SUIT_GLYPHS as s}
-                      <button class="suitbtn" class:red={s.red} class:dsel={selGame === 'suit' && selSuit === s.k} onclick={() => { selGame = 'suit'; selSuit = s.k; }} aria-label={s.name}>{s.sym}</button>
+                      <button class="suitbtn" class:dsel={selGame === 'suit' && selSuit === s.k} onclick={() => { selGame = 'suit'; selSuit = s.k; }} aria-label={s.name}>
+                        <SuitPip suit={s.k} />
+                      </button>
                     {/each}
                     <button class:dsel={selGame === 'grand'} onclick={() => (selGame = 'grand')}>Grand</button>
                     <button class:dsel={selGame === 'null'} onclick={() => (selGame = 'null')}>Null</button>
@@ -460,7 +463,9 @@
                       <span class="dval">{declValue}</span>
                       {#if selGame !== 'null'}<span class="dmeta">{declMatadors.withTop ? 'with' : 'without'} {declMatadors.n} matador{declMatadors.n === 1 ? '' : 's'}</span>{/if}
                     </div>
-                    {#if bidWarning}<p class="annnote warn"><b>Below your bid {round.bid}</b><br />{bidWarning}</p>{/if}
+                    <div class="dwarn">
+                      {#if bidWarning}<p class="annnote warn"><b>Below your bid {round.bid}</b><br />{bidWarning}</p>{/if}
+                    </div>
                     <button class="primary declare" onclick={confirmDeclare}>Declare</button>
                   {:else}
                     <p class="prompt muted">Pick a game to see its value.</p>
@@ -772,6 +777,20 @@
     flex-direction: column;
     align-items: center;
     gap: 10px;
+    /* Hold a steady height so picking a game / showing the bid warning doesn't
+       make the panel jump. Covers suit row + announcements + value + warning. */
+    min-height: 252px;
+    justify-content: flex-start;
+  }
+  .dwarn {
+    min-height: 44px; /* reserve two lines so the warning doesn't shift layout */
+    align-self: stretch; /* full panel width → the warning wraps to a steady 2 lines */
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dwarn .annnote {
+    margin: 0;
   }
   .drow {
     display: flex;
@@ -789,17 +808,24 @@
     color: #fff;
     font-weight: 600;
   }
+  /* Suit options are little card-faced tiles so the pip matches the deck. */
   .drow button.suitbtn {
-    font-size: 20px;
-    line-height: 1;
-    padding: 8px 14px;
-    min-width: 46px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 5px;
+    width: 44px;
+    height: 42px;
+    background: #fffdf7;
+    border-color: #d8d2c4;
   }
-  .drow button.suitbtn.red {
-    color: #ff6b6b;
+  .drow button.suitbtn:hover {
+    background: #fff;
   }
-  .drow button.suitbtn.red.dsel {
-    color: #fff;
+  .drow button.suitbtn.dsel {
+    background: #fffdf7;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent);
   }
   .dvalue {
     display: flex;
