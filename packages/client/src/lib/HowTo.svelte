@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from './ui.ts';
+  import { previewGameValue, SUIT_BASE, GRAND_BASE, type Contract } from '@liskat/engine';
 
   // Card faces are served from /cards/french/<ID>.svg.
   const EYES = [
@@ -17,18 +18,22 @@
   const SORTED_HAND = ['CJ', 'SJ', 'CA', 'C10', 'C7', 'SA', 'SK', 'HA', 'H9', 'DK'];
 
   // --- interactive score calculator ---
+  // Base values come from the engine so they can't drift from real scoring.
   const SUITS = [
-    { key: 'D', label: 'Diamonds', base: 9 },
-    { key: 'H', label: 'Hearts', base: 10 },
-    { key: 'S', label: 'Spades', base: 11 },
-    { key: 'C', label: 'Clubs', base: 12 },
+    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D },
+    { key: 'H', label: 'Hearts', base: SUIT_BASE.H },
+    { key: 'S', label: 'Spades', base: SUIT_BASE.S },
+    { key: 'C', label: 'Clubs', base: SUIT_BASE.C },
   ];
   const JACK_IDS: Record<string, string> = { C: 'CJ', S: 'SJ', H: 'HJ', D: 'DJ' };
   const JORDER = ['C', 'S', 'H', 'D']; // matador order, top first (J♣)
+  const JSYM: Record<string, string> = { C: '♣J', S: '♠J', H: '♥J', D: '♦J' };
 
   let game = $state<'suit' | 'grand' | 'null'>('suit');
   let suit = $state('C');
   let jacks = $state<Record<string, boolean>>({ C: true, S: true, H: false, D: false });
+  // Separate Jack selection for the interactive matador demo in section 4.
+  let demoJacks = $state<Record<string, boolean>>({ C: true, S: true, H: false, D: false });
   let hand = $state(false);
   let schneider = $state(false);
   let schneiderAnn = $state(false);
@@ -39,6 +44,34 @@
   function toggleJack(s: string) {
     jacks = { ...jacks, [s]: !jacks[s] };
   }
+  function toggleDemoJack(s: string) {
+    demoJacks = { ...demoJacks, [s]: !demoJacks[s] };
+  }
+
+  // The matador run for the demo: count from J♣ down while each Jack matches
+  // whether you hold the top one (held run if you have J♣, missing run if not).
+  const demoMatadors = $derived.by(() => {
+    const withTop = demoJacks.C;
+    let n = 0;
+    for (const s of JORDER) {
+      if (demoJacks[s] === withTop) n++;
+      else break;
+    }
+    return { n, withTop };
+  });
+
+  // A plain-language sentence describing the current Jack selection.
+  const demoDesc = $derived.by(() => {
+    const { n, withTop } = demoMatadors;
+    const run = JORDER.slice(0, n).map((s) => JSYM[s]).join(', ').replace(/, ([^,]*)$/, ' and $1');
+    const next = n < 4 ? JSYM[JORDER[n]] : null;
+    if (withTop) {
+      const head = n === 4 ? 'You hold all four Jacks' : `You hold ${run} in an unbroken run from ♣J, but not ${next}`;
+      return `${head} — you play with ${n}, adding ${n} to the multiplier.`;
+    }
+    const head = n === 4 ? 'You hold none of the Jacks' : `You are missing the top ${n === 1 ? 'Jack' : n + ' Jacks'} (${run}) but hold ${next}`;
+    return `${head} — you play without ${n}, adding ${n} to the multiplier.`;
+  });
 
   // Keep the extras legal as you click them. Announcements need a Hand game;
   // announced Schwarz implies announced Schneider; Open (in a suit/Grand) needs
@@ -80,10 +113,13 @@
 
   const calc = $derived.by(() => {
     if (game === 'null') {
-      const value = hand && ouvert ? 59 : ouvert ? 46 : hand ? 35 : 23;
+      const value = previewGameValue({ type: 'null' }, 0, { hand, ouvert });
       return { isNull: true, value, label: 'Null' + (hand ? ' Hand' : '') + (ouvert ? ' Open' : '') };
     }
-    const base = game === 'grand' ? 24 : (SUITS.find((s) => s.key === suit)?.base ?? 12);
+    const contract = (game === 'grand' ? { type: 'grand' } : { type: 'suit', suit }) as Contract;
+    const base = game === 'grand' ? GRAND_BASE : (SUITS.find((s) => s.key === suit)?.base ?? SUIT_BASE.C);
+    // The breakdown (for the explanatory line) mirrors the multiplier terms; the
+    // numeric value itself comes from the shared engine helper.
     const parts = [{ label: 'matadors', n: matadors.n }, { label: 'game', n: 1 }];
     if (hand) parts.push({ label: 'hand', n: 1 });
     if (schneider) parts.push({ label: 'schneider', n: 1 });
@@ -92,8 +128,9 @@
     if (schwarzAnn) parts.push({ label: 'schwarz announced', n: 1 });
     if (ouvert) parts.push({ label: 'open', n: 1 });
     const mult = parts.reduce((a, p) => a + p.n, 0);
+    const value = previewGameValue(contract, matadors.n, { hand, schneider, schneiderAnnounced: schneiderAnn, schwarz, schwarzAnnounced: schwarzAnn, ouvert });
     const name = game === 'grand' ? 'Grand' : (SUITS.find((s) => s.key === suit)?.label ?? '');
-    return { isNull: false, value: base * mult, base, mult, name, parts, withLabel: (matadors.withTop ? 'with ' : 'without ') + matadors.n };
+    return { isNull: false, value, base, mult, name, parts, withLabel: (matadors.withTop ? 'with ' : 'without ') + matadors.n };
   });
 </script>
 
@@ -159,15 +196,32 @@
 
     <h3>Matadors (with or without)</h3>
     <p>A game value is the base value times a multiplier, and the multiplier starts from your "matadors". Matadors are the run of top trumps you hold without a gap, counting down from the strongest card, the Jack of Clubs.</p>
-    <div class="row">{#each JACKS as id}{@render card(id)}{/each}</div>
-    <p>If you hold the Jack of Clubs, you play "with" as many top trumps as you hold in an unbroken row. If you do not, you play "without" the top trumps you are missing in a row. The number is the same either way and is added to the multiplier.</p>
-    <p class="note">Example: holding ♣J and ♠J but not ♥J is "with 2". Holding no Jack at all is "without" however many you are missing from the top. (We count the Jacks here; in a suit game the run can continue into the trump suit: A, 10, K and so on.)</p>
+    <p>If you hold the Jack of Clubs, you play "with" as many top trumps as you hold in an unbroken row. If you do not, you play "without" the top trumps you are missing in a row. The number is the same either way and is added to the multiplier. Click the Jacks below to try it:</p>
+
+    <div class="matdemo">
+      <div class="matdemo-top">
+        <div class="jacks">
+          {#each JORDER as s}
+            <button class="jackbtn" class:off={!demoJacks[s]} onclick={() => toggleDemoJack(s)} aria-pressed={demoJacks[s]}>
+              <img src="/cards/french/{JACK_IDS[s]}.svg" alt={JACK_IDS[s]} />
+            </button>
+          {/each}
+        </div>
+        <div class="matbadge">
+          <span class="matwith">{demoMatadors.withTop ? 'with' : 'without'} {demoMatadors.n}</span>
+          <span class="matadd">+{demoMatadors.n} to the multiplier</span>
+        </div>
+      </div>
+      <p class="matdemo-desc">{demoDesc}</p>
+    </div>
+
+    <p class="note">We count the Jacks here; in a suit game the run can continue into the trump suit (A, 10, K and so on), so a matador count above 4 is possible.</p>
     <p class="note">So the multiplier is: matadors + 1 for the game itself, plus one more for each extra (Hand, Schneider, Schwarz, Open, and the announced versions). You win if you take 61 eyes and your game is worth at least your bid.</p>
   </section>
 
   <section>
     <h2>5. Score calculator</h2>
-    <p>Pick a game, click the Jacks you hold, and toggle the extras to see the game value. Unselected Jacks are greyed out.</p>
+    <p>Pick a game, click the Jacks you hold, and toggle the extras to see the game value. <em>Announced</em> extras are committed before play (and lose the game if you fall short); <em>achieved</em> ones are simply what happened at the table. Unselected Jacks are greyed out.</p>
 
     <div class="calc">
       <div class="calc-row">
@@ -204,18 +258,26 @@
       {/if}
 
       <div class="calc-row">
-        <span class="calc-label">Extras</span>
+        <span class="calc-label">Announced<small>before play</small></span>
         <div class="opts">
           <button class:sel={hand} onclick={() => setHand(!hand)}>Hand</button>
           {#if game !== 'null'}
-            <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
             <button class:sel={schneiderAnn} onclick={() => setSchneiderAnn(!schneiderAnn)}>Schneider announced</button>
-            <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
             <button class:sel={schwarzAnn} onclick={() => setSchwarzAnn(!schwarzAnn)}>Schwarz announced</button>
           {/if}
           <button class:sel={ouvert} onclick={() => setOpen(!ouvert)}>Open</button>
         </div>
       </div>
+
+      {#if game !== 'null'}
+        <div class="calc-row">
+          <span class="calc-label">Achieved<small>during play</small></span>
+          <div class="opts">
+            <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
+            <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
+          </div>
+        </div>
+      {/if}
 
       <div class="calc-out">
         <div class="calc-value">{calc.value}</div>
@@ -260,6 +322,12 @@
     color: var(--muted);
     font-size: 13px;
     padding-top: 7px;
+  }
+  .calc-label small {
+    display: block;
+    font-size: 11px;
+    opacity: 0.65;
+    margin-top: 1px;
   }
   .opts {
     display: flex;
@@ -308,6 +376,39 @@
   .jackbtn.off img {
     opacity: 0.32;
     filter: grayscale(1);
+  }
+  .matdemo {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin: 14px 0;
+  }
+  .matdemo-top {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 16px;
+  }
+  .matbadge {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .matwith {
+    font-size: 22px;
+    font-weight: 800;
+    color: #ffd54a;
+    line-height: 1.1;
+  }
+  .matadd {
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .matdemo-desc {
+    margin: 12px 0 0;
+    line-height: 1.5;
+    font-size: 15px;
   }
   .calc-out {
     margin-top: 14px;
