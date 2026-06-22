@@ -14,7 +14,7 @@
   <button class="toggle" onclick={() => (open = !open)}>{open ? '▾' : '▸'} Chat</button>
   {#if open}
     <div class="log">
-      {#each messages.slice(-8) as m}
+      {#each messages.slice(-30) as m}
         {@const id = identityForSlot(m.slot)}
         <div class="msg"><span class="marker" style="color:{id.color}">{id.marker}</span> <strong>{m.nick}:</strong> {m.text}</div>
       {/each}
@@ -29,18 +29,26 @@
 </div>
 
 <style>
+  /* Anchored at the top so the toggle bar stays put whether open or collapsed;
+     when open it fills the available height instead of hugging its content. */
   .chat {
     position: fixed;
     left: 16px;
-    top: 50%;
-    transform: translateY(-50%);
+    top: 70px;
     width: 220px;
+    z-index: 6;
+    display: flex;
+    flex-direction: column;
     background: rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
     backdrop-filter: blur(6px);
     font-size: 13px;
     overflow: hidden;
+  }
+  .chat.open {
+    height: calc(100vh - 160px);
+    max-height: 600px;
   }
   .toggle {
     width: 100%;
@@ -53,7 +61,8 @@
     font-size: 13px;
   }
   .log {
-    max-height: 140px;
+    flex: 1;
+    min-height: 0;
     overflow-y: auto;
     padding: 0 12px 6px;
   }

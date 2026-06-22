@@ -1,11 +1,22 @@
 <script lang="ts">
   // A suit pip drawn to match the card faces exactly: same shapes, same German
   // 4-colour scheme (♦ orange, ♥ red, ♠ green, ♣ black) used in /cards/french.
-  let { suit, size = 26 }: { suit: 'D' | 'H' | 'S' | 'C'; size?: number } = $props();
+  // `outline` adds a white stroke so dark pips (♣ black, ♠ green) stay legible
+  // when shown on a green button instead of a white card tile.
+  let { suit, size = 26, outline = false }: { suit: 'D' | 'H' | 'S' | 'C'; size?: number; outline?: boolean } = $props();
   const COLOR: Record<string, string> = { D: '#e6820a', H: '#d11', S: '#1f7a1f', C: '#1a1a1a' };
 </script>
 
-<svg viewBox="0 0 100 100" width={size} height={size} fill={COLOR[suit]} aria-hidden="true">
+<svg
+  viewBox="0 0 100 100"
+  width={size}
+  height={size}
+  fill={COLOR[suit]}
+  stroke={outline ? '#fffdf7' : 'none'}
+  stroke-width={outline ? 7 : 0}
+  stroke-linejoin="round"
+  aria-hidden="true"
+>
   {#if suit === 'D'}
     <path d="M50 2 L94 50 L50 98 L6 50 Z" />
   {:else if suit === 'H'}

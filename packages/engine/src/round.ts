@@ -42,7 +42,8 @@ export type DeclareStep = 'choose' | 'discard' | 'contract' | 'done';
 export interface RoundState {
   phase: Phase;
   hands: [Card[], Card[], Card[]];
-  skat: [Card, Card]; // belongs to the declarer; counts for their points
+  skat: [Card, Card]; // belongs to the declarer; counts for their points (the discard, once they've discarded)
+  skatDealt: [Card, Card]; // the two cards originally dealt to the skat (skat above is overwritten by the discard)
   bidding: BiddingState;
 
   declarer: Seat | null;
@@ -90,6 +91,7 @@ export function createRound(d: Deal): RoundState {
     phase: 'bidding',
     hands: [d.hands[0].slice(), d.hands[1].slice(), d.hands[2].slice()],
     skat: [d.skat[0], d.skat[1]],
+    skatDealt: [d.skat[0], d.skat[1]],
     bidding: {
       stage: 1,
       asker: 1, // middlehand calls to forehand

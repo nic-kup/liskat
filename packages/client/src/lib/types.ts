@@ -52,6 +52,7 @@ export interface RoundView {
   passedIn: boolean;
   result: { won: boolean; value: number; multiplier: number; schneider: boolean; schwarz: boolean; cardPoints?: number } | null;
   skat: [Card, Card] | null;
+  skatDealt: [Card, Card] | null;
   banks: number[];
   turnRemainingMs: number | null;
 }

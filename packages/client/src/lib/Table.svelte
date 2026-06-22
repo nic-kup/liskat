@@ -105,12 +105,13 @@
   let selGame = $state<'' | 'suit' | 'grand' | 'null'>('');
   let selSuit = $state<'C' | 'S' | 'H' | 'D'>('C');
 
-  // Suit options for the game chooser; the pip itself is drawn by SuitPip.
+  // Suit options for the game chooser, ordered high→low to mirror the Jacks
+  // (♣ ♠ ♥ ♦); the pip itself is drawn by SuitPip.
   const SUIT_GLYPHS: { k: 'D' | 'H' | 'S' | 'C'; name: string }[] = [
-    { k: 'D', name: 'Diamonds' },
-    { k: 'H', name: 'Hearts' },
-    { k: 'S', name: 'Spades' },
     { k: 'C', name: 'Clubs' },
+    { k: 'S', name: 'Spades' },
+    { k: 'H', name: 'Hearts' },
+    { k: 'D', name: 'Diamonds' },
   ];
 
   $effect(() => {
@@ -237,7 +238,8 @@
     });
   });
 
-  const canDeclare = $derived(!!selGame);
+  // Need a game; and when the Skat was picked up, exactly two cards to discard.
+  const canDeclare = $derived(!!selGame && (round?.declareStep !== 'discard' || selected.length === 2));
 
   // If the chosen game is worth less than the bid, the second line of the
   // warning: what the declarer must still achieve in play to cover the bid.
@@ -258,7 +260,10 @@
   });
 
   function confirmDeclare() {
-    if (declContract) declare(declContract);
+    if (!declContract || !canDeclare) return;
+    // Skat picked up: discard the two chosen cards first, then name the game.
+    if (round?.declareStep === 'discard') doDiscard();
+    declare(declContract);
   }
 
   function onCardClick(card: Card) {
@@ -284,6 +289,19 @@
     if (c.type === 'grand') return 'Grand';
     if (c.type === 'null') return 'Null';
     return { C: '♣ Clubs', S: '♠ Spades', H: '♥ Hearts', D: '♦ Diamonds' }[c.suit];
+  }
+
+  // The declarer's announced modifiers ("Hand · Schneider · Open"), or '' for a
+  // defender or before a game is named. Hand = the Skat wasn't picked up.
+  function declarerMods(slot: number): string {
+    if (!round || round.declarerSlot !== slot || !round.contract) return '';
+    const a = round.announcements;
+    const m: string[] = [];
+    if (!round.tookSkat) m.push('Hand');
+    if (a.schneiderAnnounced) m.push('Schneider');
+    if (a.schwarzAnnounced) m.push('Schwarz');
+    if (a.ouvert) m.push('Open');
+    return m.join(' · ');
   }
 </script>
 
@@ -343,18 +361,28 @@
           {@const say = round?.phase === 'bidding' ? bidSay(p.role) : ''}
           <div class="seat" class:turn={(round?.phase === 'playing' && round.turnSlot === p.slot) || bidActiveSlot === p.slot}>
             <div class="who">
-              {#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}
               <span class="marker" style="color:{id.color}">{id.marker}</span>
               <strong>{p.nick}</strong>
+            </div>
+            <div class="statline">
+              {#if timed && clockSlot === p.slot && clockDisplay}
+                <span class="clock big" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>
+              {:else if timed && round}
+                <span class="clock big bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>
+              {:else}
+                <span class="clock big bank">⏱ —</span>
+              {/if}
+              <span class="vsep"></span>
               <span class="score">{view.match?.scores[p.slot] ?? 0}</span>
-              {#if timed}{#if clockSlot === p.slot && clockDisplay}<span class="clock" class:low={clockDisplay.reserve}>⏱ {clockDisplay.text}</span>{:else if round}<span class="clock bank" title="time bank">⏱ {bankSeconds(p.slot)}s</span>{/if}{/if}
-              {#if round?.declarerSlot === p.slot}<span class="badge">Declarer · {round.bid}</span>{/if}
             </div>
-            <div class="backs">
-              {#each Array(round?.handCounts[p.role] ?? 0) as _, i}
-                <div class="backwrap" style="margin-left:{i === 0 ? 0 : -42}px"><CardView back width={48} /></div>
-              {/each}
+            <div class="declline">
+              <span class="dcell dealer-cell">{#if dealerSlot === p.slot}<span class="dealer-chip" title="dealer">D</span>{/if}</span>
+              <span class="vsep"></span>
+              <span class="dcell bid-cell">{#if round?.declarerSlot === p.slot}{round.bid}{/if}</span>
+              <span class="vsep"></span>
+              <span class="dcell game-cell">{#if round?.declarerSlot === p.slot}{contractLabel(round.contract)}{/if}</span>
             </div>
+            <div class="modline">{declarerMods(p.slot)}</div>
             {#key say}
               {#if say}<div class="bidbubble" style="background:{id.color}">{say}</div>{/if}
             {/key}
@@ -377,12 +405,22 @@
                 {round.result.schneider ? '· Schneider' : ''}{round.result.schwarz ? '· Schwarz' : ''}
               </h3>
             {/if}
-            {#if round?.skat}
+            {#if round?.skatDealt}
               <div class="skatreveal">
-                <span class="skat-label">Skat</span>
-                <div class="skat-cards">
-                  {#each round.skat as c}<CardView card={c} width={54} />{/each}
+                <div class="skat-group">
+                  <span class="skat-label">Skat</span>
+                  <div class="skat-cards">
+                    {#each round.skatDealt as c}<CardView card={c} width={48} />{/each}
+                  </div>
                 </div>
+                {#if round.tookSkat && round.skat}
+                  <div class="skat-group">
+                    <span class="skat-label">Discarded</span>
+                    <div class="skat-cards">
+                      {#each round.skat as c}<CardView card={c} width={48} />{/each}
+                    </div>
+                  </div>
+                {/if}
               </div>
             {/if}
             <p class="muted">next deal shortly…</p>
@@ -403,9 +441,9 @@
                   <button onclick={pass}>Pass</button>
                 </div>
               {:else if round.bidding!.awaiting === 'forehand-decision'}
-                <p class="prompt">Everyone passed — play the hand yourself?</p>
+                <p class="prompt">Everyone passed — play at the minimum bid?</p>
                 <div class="bigactions">
-                  {#each nextBids() as v}<button class="primary" onclick={() => bid(v)}>Play {v}</button>{/each}
+                  <button class="primary" onclick={() => bid(18)}>Play for 18</button>
                   <button onclick={pass}>Pass</button>
                 </div>
               {:else}
@@ -430,17 +468,17 @@
                   <button onclick={playHand}>Play hand</button>
                 </div>
                 {@render hints()}
-              {:else if round.declareStep === 'discard'}
-                <h3>Pick two cards for the Skat ({selected.length}/2)</h3>
-                <p class="muted">Click cards in your hand below.</p>
-                <button class="primary" onclick={doDiscard} disabled={selected.length !== 2}>Put in Skat</button>
-              {:else if round.declareStep === 'contract'}
-                <h3>Choose your game</h3>
+              {:else}
+                {#if round.declareStep === 'discard'}
+                  <h3>Name your game, and tap 2 cards below for the Skat ({selected.length}/2)</h3>
+                {:else}
+                  <h3>Choose your game</h3>
+                {/if}
                 <div class="dchoose">
                   <div class="drow">
                     {#each SUIT_GLYPHS as s}
                       <button class="suitbtn" class:dsel={selGame === 'suit' && selSuit === s.k} onclick={() => { selGame = 'suit'; selSuit = s.k; }} aria-label={s.name}>
-                        <SuitPip suit={s.k} />
+                        <SuitPip suit={s.k} size={22} outline />
                       </button>
                     {/each}
                     <button class:dsel={selGame === 'grand'} onclick={() => (selGame = 'grand')}>Grand</button>
@@ -458,7 +496,7 @@
                     </div>
                   {/if}
 
-                  {#if canDeclare}
+                  {#if selGame}
                     <div class="dvalue">
                       <span class="dval">{declValue}</span>
                       {#if selGame !== 'null'}<span class="dmeta">{declMatadors.withTop ? 'with' : 'without'} {declMatadors.n} matador{declMatadors.n === 1 ? '' : 's'}</span>{/if}
@@ -466,7 +504,9 @@
                     <div class="dwarn">
                       {#if bidWarning}<p class="annnote warn"><b>Below your bid {round.bid}</b><br />{bidWarning}</p>{/if}
                     </div>
-                    <button class="primary declare" onclick={confirmDeclare}>Declare</button>
+                    <button class="primary declare" onclick={confirmDeclare} disabled={!canDeclare}>
+                      {round.declareStep === 'discard' && selected.length !== 2 ? `Pick ${2 - selected.length} more for the Skat` : 'Declare'}
+                    </button>
                   {:else}
                     <p class="prompt muted">Pick a game to see its value.</p>
                   {/if}
@@ -715,10 +755,61 @@
   .turnhint.active {
     color: #ffd54a;
   }
-  .backs {
+  /* Opponent seat: name, then fixed-slot lines for clock|score and
+     dealer|bid|game, then the announced modifiers. Each slot is always present
+     (filled or blank) so the layout never shifts. */
+  .seat {
+    min-width: 196px;
+    text-align: center;
+    background: rgba(0, 0, 0, 0.18);
+  }
+  .seat .who {
+    justify-content: center;
+  }
+  .statline {
     display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 5px;
+  }
+  .declline {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
     margin-top: 6px;
-    height: 67px;
+    min-height: 22px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .dcell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .dealer-cell {
+    min-width: 20px;
+  }
+  .bid-cell {
+    min-width: 26px;
+    font-weight: 700;
+    color: #ffd54a;
+  }
+  .game-cell {
+    min-width: 72px;
+    color: #f2f5f3;
+  }
+  .vsep {
+    width: 1px;
+    align-self: stretch;
+    background: rgba(255, 255, 255, 0.18);
+  }
+  .modline {
+    min-height: 15px;
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--muted);
   }
   .center {
     flex: 1;
@@ -808,24 +899,13 @@
     color: #fff;
     font-weight: 600;
   }
-  /* Suit options are little card-faced tiles so the pip matches the deck. */
+  /* Suit options sit on the same green chips as Grand/Null; the white-outlined
+     pip keeps every suit legible without a card-coloured tile. */
   .drow button.suitbtn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 5px;
-    width: 44px;
-    height: 42px;
-    background: #fffdf7;
-    border-color: #d8d2c4;
-  }
-  .drow button.suitbtn:hover {
-    background: #fff;
-  }
-  .drow button.suitbtn.dsel {
-    background: #fffdf7;
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent);
+    padding: 6px 12px;
   }
   .dvalue {
     display: flex;
@@ -930,6 +1010,14 @@
   }
   .skatreveal {
     margin: 10px 0 4px;
+    display: flex;
+    gap: 22px;
+    justify-content: center;
+  }
+  .skat-group {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
   }
   .skat-label {
     font-size: 11px;
@@ -1074,5 +1162,11 @@
     border-color: #b00020;
     color: #fff;
     font-weight: 600;
+  }
+  /* Phone/tablet: lift the hand clear of the browser's bottom bar. */
+  @media (max-width: 980px) {
+    .table {
+      padding-bottom: 7vh;
+    }
   }
 </style>

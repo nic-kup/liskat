@@ -20,11 +20,12 @@
 
   // --- interactive score calculator ---
   // Base values come from the engine so they can't drift from real scoring.
+  // Ordered high→low to mirror the Jacks (♣ ♠ ♥ ♦).
   const SUITS = [
-    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D },
-    { key: 'H', label: 'Hearts', base: SUIT_BASE.H },
-    { key: 'S', label: 'Spades', base: SUIT_BASE.S },
     { key: 'C', label: 'Clubs', base: SUIT_BASE.C },
+    { key: 'S', label: 'Spades', base: SUIT_BASE.S },
+    { key: 'H', label: 'Hearts', base: SUIT_BASE.H },
+    { key: 'D', label: 'Diamonds', base: SUIT_BASE.D },
   ];
   const JACK_IDS: Record<string, string> = { C: 'CJ', S: 'SJ', H: 'HJ', D: 'DJ' };
   const JORDER = ['C', 'S', 'H', 'D']; // matador order, top first (J♣)
@@ -61,17 +62,14 @@
     return { n, withTop };
   });
 
-  // A plain-language sentence describing the current Jack selection.
+  // A short sentence describing the current Jack selection (the badge already
+  // shows "with/without N" and the multiplier, so this just names the cards).
   const demoDesc = $derived.by(() => {
     const { n, withTop } = demoMatadors;
     const run = JORDER.slice(0, n).map((s) => JSYM[s]).join(', ').replace(/, ([^,]*)$/, ' and $1');
     const next = n < 4 ? JSYM[JORDER[n]] : null;
-    if (withTop) {
-      const head = n === 4 ? 'You hold all four Jacks' : `You hold ${run} in an unbroken run from ♣J, but not ${next}`;
-      return `${head} — you play with ${n}, adding ${n} to the multiplier.`;
-    }
-    const head = n === 4 ? 'You hold none of the Jacks' : `You are missing the top ${n === 1 ? 'Jack' : n + ' Jacks'} (${run}) but hold ${next}`;
-    return `${head} — you play without ${n}, adding ${n} to the multiplier.`;
+    if (withTop) return n === 4 ? 'You hold all four Jacks.' : `You hold ${run}, but not ${next}.`;
+    return n === 4 ? 'You hold no Jacks.' : `You’re missing ${run}, but hold ${next}.`;
   });
 
   // Keep the extras legal as you click them. Announcements need a Hand game;
@@ -131,7 +129,10 @@
     const mult = parts.reduce((a, p) => a + p.n, 0);
     const value = previewGameValue(contract, matadors.n, { hand, schneider, schneiderAnnounced: schneiderAnn, schwarz, schwarzAnnounced: schwarzAnn, ouvert });
     const name = game === 'grand' ? 'Grand' : (SUITS.find((s) => s.key === suit)?.label ?? '');
-    return { isNull: false, value, base, mult, name, parts, withLabel: (matadors.withTop ? 'with ' : 'without ') + matadors.n };
+    // Announce a level and fail to make it → the game is lost, scored at −2× the
+    // value. (Announced Schwarz also requires Schneider, so it covers both.)
+    const failed = (schneiderAnn && !schneider) || (schwarzAnn && !schwarz);
+    return { isNull: false, value, base, mult, name, parts, failed, withLabel: (matadors.withTop ? 'with ' : 'without ') + matadors.n };
   });
 </script>
 
@@ -139,10 +140,11 @@
   <img class="gcard" src="/cards/french/{id}.svg" alt={id} />
 {/snippet}
 
-<button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
-<div class="topright"><button class="link" onclick={() => ($page = 'lobby')}>← Lobby</button></div>
-
 <div class="howto">
+  <div class="pagehead">
+    <button class="brand" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
+    <button class="link" onclick={() => ($page = 'lobby')}>← Lobby</button>
+  </div>
   <h1>How to play Skat</h1>
   <p class="intro">Skat is a trick-taking card game for three players. One player (the declarer) plays alone against the other two, who form a team for that deal. Here is what you need to know to start.</p>
 
@@ -226,9 +228,9 @@
 
     <div class="calc">
       <div class="calc-row">
-        <span class="calc-label">Skat<small>first decision</small></span>
+        <span class="calc-label">Skat</span>
         <div class="opts">
-          <button class:sel={!hand} onclick={() => setHand(false)}>Pick up Skat</button>
+          <button class:sel={!hand} onclick={() => setHand(false)}>Pick up</button>
           <button class:sel={hand} onclick={() => setHand(true)}>Play hand</button>
         </div>
       </div>
@@ -238,7 +240,7 @@
         <div class="opts">
           {#each SUITS as s}
             <button class="suitopt" class:sel={game === 'suit' && suit === s.key} onclick={() => { setGame('suit'); suit = s.key; }} aria-label={s.label}>
-              <SuitPip suit={s.key as 'D' | 'H' | 'S' | 'C'} />
+              <SuitPip suit={s.key as 'D' | 'H' | 'S' | 'C'} size={20} outline />
             </button>
           {/each}
           <button class:sel={game === 'grand'} onclick={() => setGame('grand')}>Grand</button>
@@ -247,10 +249,10 @@
       </div>
 
       <div class="calc-row">
-        <span class="calc-label">Jacks you hold</span>
+        <span class="calc-label">Jacks</span>
         <div class="jacks">
           {#if game === 'null'}
-            <span class="calc-na">Jacks don’t matter in a Null game.</span>
+            <span class="calc-na">No trumps in a Null game.</span>
           {:else}
             {#each JORDER as s}
               <button class="jackbtn" class:off={!jacks[s]} onclick={() => toggleJack(s)} aria-pressed={jacks[s]}>
@@ -262,11 +264,11 @@
       </div>
 
       <div class="calc-row">
-        <span class="calc-label">Announced<small>before play</small></span>
+        <span class="calc-label">Announced</span>
         <div class="opts">
           {#if game !== 'null'}
-            <button class:sel={schneiderAnn} disabled={!hand} onclick={() => setSchneiderAnn(!schneiderAnn)}>Schneider announced</button>
-            <button class:sel={schwarzAnn} disabled={!hand} onclick={() => setSchwarzAnn(!schwarzAnn)}>Schwarz announced</button>
+            <button class:sel={schneiderAnn} disabled={!hand} onclick={() => setSchneiderAnn(!schneiderAnn)}>Schneider</button>
+            <button class:sel={schwarzAnn} disabled={!hand} onclick={() => setSchwarzAnn(!schwarzAnn)}>Schwarz</button>
             <button class:sel={ouvert} disabled={!hand} onclick={() => setOpen(!ouvert)}>Open</button>
           {:else}
             <button class:sel={ouvert} onclick={() => setOpen(!ouvert)}>Open</button>
@@ -275,22 +277,27 @@
       </div>
 
       <div class="calc-row">
-        <span class="calc-label">Achieved<small>during play</small></span>
+        <span class="calc-label">Achieved</span>
         <div class="opts">
           {#if game !== 'null'}
             <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
             <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
           {:else}
-            <span class="calc-na">A Null is won or lost — nothing is scored in play.</span>
+            <span class="calc-na">Won or lost — nothing scored in play.</span>
           {/if}
         </div>
       </div>
 
       <div class="calc-out">
-        <div class="calc-value">{calc.value}</div>
         {#if calc.isNull}
+          <div class="calc-value">{calc.value}</div>
           <div class="calc-formula">{calc.label} = {calc.value}</div>
+        {:else if calc.failed}
+          <div class="calc-value loss">−{calc.value * 2}</div>
+          <div class="calc-formula loss">Announced but not made — game lost</div>
+          <div class="calc-formula">−2 × {calc.value} = −{calc.value * 2}</div>
         {:else}
+          <div class="calc-value">{calc.value}</div>
           <div class="calc-formula"><strong>{calc.name}</strong> · {calc.withLabel} matador{matadors.n === 1 ? '' : 's'}</div>
           <div class="calc-formula">{calc.base} × {calc.mult} = {calc.value}</div>
           <div class="calc-parts">multiplier {calc.mult} = {calc.parts.map((p) => p.label + ' ' + p.n).join(' + ')}</div>
@@ -325,7 +332,7 @@
     border-bottom: 1px solid rgba(255, 255, 255, 0.07);
   }
   .calc-label {
-    flex: 0 0 110px;
+    flex: 0 0 72px;
     color: var(--muted);
     font-size: 13px;
     padding-top: 7px;
@@ -366,30 +373,23 @@
   .opts button:disabled:hover {
     background: rgba(255, 255, 255, 0.06);
   }
-  /* Suit options are little card-faced tiles so the pip matches the deck. */
+  /* Suit options sit on the same green chips as Grand/Null; the white-outlined
+     pip keeps every suit legible without a card-coloured tile. */
   .opts button.suitopt {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 5px;
-    width: 40px;
-    height: 38px;
-    background: #fffdf7;
-    border-color: #d8d2c4;
-  }
-  .opts button.suitopt:hover {
-    background: #fff;
-  }
-  .opts button.suitopt.sel {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 2px var(--accent);
-    background: #fffdf7;
+    padding: 4px 9px;
   }
   .calc-na {
     color: var(--muted);
     font-size: 13px;
-    padding-top: 7px;
     font-style: italic;
+    /* Match a button row's height so swapping buttons for this note (Null game)
+       doesn't change the box height. */
+    display: flex;
+    align-items: center;
+    min-height: 34px;
   }
   .jacks {
     display: flex;
@@ -466,6 +466,10 @@
     line-height: 1;
     color: #ffd54a;
   }
+  .calc-value.loss,
+  .calc-formula.loss {
+    color: #ff6b6b;
+  }
   .calc-formula {
     margin-top: 6px;
     font-size: 15px;
@@ -475,13 +479,25 @@
     font-size: 12px;
     color: var(--muted);
   }
-  .brand:hover {
-    color: #ffa733 !important;
+  .pagehead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 18px;
   }
-  .topright {
-    position: fixed;
-    top: 20px;
-    right: 20px;
+  .brand {
+    font-size: 26px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    color: #f2f5f3;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .brand:hover {
+    color: #ffa733;
   }
   .link {
     background: none;
@@ -497,7 +513,7 @@
   .howto {
     max-width: 720px;
     margin: 0 auto;
-    padding: 84px 20px 60px;
+    padding: 22px 20px 60px;
   }
   h1 {
     font-size: 30px;

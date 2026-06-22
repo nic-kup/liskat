@@ -32,6 +32,7 @@ const BOT_MOVE_MS = 800; // pause before a bot plays, so a human can follow what
 // zero and a random legal move is played for you.
 const TURN_BASE_MS = 10_000;
 const FIRST_BID_MS = 20_000; // the opening bid gets extra time to size up the hand
+const DECLARE_MS = 30_000; // discarding + naming the game is a bigger decision
 const BANK_START_MS = 30_000;
 const BANK_PER_DEAL_MS = 10_000;
 
@@ -310,6 +311,7 @@ export class Table {
   private baseAllowance(): number {
     const r = this.round;
     if (r && r.phase === 'bidding' && r.bidding.lastActions.every((a) => a === null)) return FIRST_BID_MS;
+    if (r && r.phase === 'declaring') return DECLARE_MS; // pick up, discard + name the game
     return TURN_BASE_MS;
   }
 
@@ -579,6 +581,7 @@ export class Table {
         passedIn: r.passedIn,
         result: finished ? r.result : null,
         skat: finished ? r.skat : null,
+        skatDealt: finished ? r.skatDealt : null,
         banks: this.timeBank.slice(),
         turnRemainingMs: this.turnRemainingMs(),
       };
@@ -656,7 +659,8 @@ export interface RoundView {
   legal: Card[];
   passedIn: boolean;
   result: RoundState['result'];
-  skat: [Card, Card] | null;
+  skat: [Card, Card] | null; // the declarer's discard (or the dealt skat on a Hand game)
+  skatDealt: [Card, Card] | null; // the two cards originally dealt to the skat
   banks: number[]; // remaining time-bank reserve per slot (ms)
   turnRemainingMs: number | null; // clock left for the player on turn (ms)
 }

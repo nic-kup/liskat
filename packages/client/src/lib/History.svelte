@@ -26,13 +26,15 @@
           </tr>
         </thead>
         <tbody>
-          {#each history as h}
+          {#each history as h, i}
+            {@const prev = i > 0 ? history[i - 1].scores : [0, 0, 0]}
             <tr>
               <td class="deal">{h.deal}</td>
               {#each [0, 1, 2] as slot}
+                {@const d = h.scores[slot] - prev[slot]}
                 <td class:declarer={h.declarerSlot === slot} class:mine={slot === mySlot}>
-                  {h.scores[slot]}
                   {#if h.declarerSlot === slot}<span class="tag" class:won={h.won} class:lost={!h.won}>{h.short}{h.won ? '✓' : '✗'}</span>{/if}
+                  {#if d !== 0}<span class="delta" class:won={d > 0} class:lost={d < 0}>{d > 0 ? '+' : ''}{d}</span>{/if}
                 </td>
               {/each}
             </tr>
@@ -41,6 +43,16 @@
             <tr><td colspan="4" class="empty">No deals played yet.</td></tr>
           {/if}
         </tbody>
+        {#if history.length > 0}
+          <tfoot>
+            <tr class="totals">
+              <td class="deal">Σ</td>
+              {#each [0, 1, 2] as slot}
+                <td class:mine={slot === mySlot}>{history[history.length - 1].scores[slot]}</td>
+              {/each}
+            </tr>
+          </tfoot>
+        {/if}
       </table>
     </div>
   {/if}
@@ -49,9 +61,10 @@
 <style>
   .history {
     position: fixed;
-    left: 16px;
+    right: 16px;
     top: 70px;
     width: 230px;
+    z-index: 6;
     background: rgba(0, 0, 0, 0.4);
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 12px;
@@ -107,6 +120,24 @@
   }
   .tag.lost {
     color: #ff8a80;
+  }
+  .delta {
+    margin-left: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .delta.won {
+    color: #7fe3a3;
+  }
+  .delta.lost {
+    color: #ff8a80;
+  }
+  tfoot td {
+    border-top: 1px solid rgba(255, 255, 255, 0.18);
+    font-weight: 700;
+    padding-top: 5px;
+  }
+  tfoot .deal {
+    color: var(--muted);
   }
   .marker {
     font-size: 13px;

@@ -332,6 +332,12 @@ export function joinTable(tableId: string): void {
 
 export function leaveTable(): void {
   send({ t: 'leaveTable' });
+  // Drop any ?table=… from the URL so a reload doesn't rejoin the table we left.
+  try {
+    if (location.search) history.replaceState(null, '', location.pathname);
+  } catch {
+    /* history API unavailable */
+  }
 }
 
 export function listTables(): void {
