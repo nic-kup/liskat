@@ -80,69 +80,66 @@ export interface BotParams {
   nullLeadHigh: number; // > 0.5: when on lead in a null game, shed the highest safe card instead of the lowest
 }
 
-// Tuned by self-play evolution (experiments/, gitignored): 99 bots, tables of 3,
-// 48 deals each, Seeger-Fabian selection, using perfect memory of the public play
-// record (bot-memory.ts). The "break in with a trump" decisions (declRuff*,
-// defBreak*) are linear scores over the trick value, trumps held, cards left, and
-// side winners rather than flat thresholds. passedPriorBonus relaxes the bid bar
-// when both opponents have passed.
+// Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
+// 48 deals each, Seeger-Fabian selection, ~300 generations, fresh random init with
+// a hall of fame, using perfect memory of the public play record (bot-memory.ts).
+// The champion is chosen by a two-stage benchmark against a FIXED production genome
+// (cheap 480-deal screen, then a 6000-deal confirm) and then validated on a disjoint
+// 40k-deal head-to-head before shipping (experiments/ab-skat.ts) -- this genome wins
+// by ~+0.5 pts/deal over the prior shipped bot across four independent deal seeds,
+// at a ~75% declarer win rate (it bids a bit more, but profitably). The gains are in
+// PLAY, not bidding: declarerCashSafeOnly is on (don't feed a master to a ruff), the
+// defensive break-in (defBreak*, defenderLeadHonour) is more active, and the bid bar
+// relaxes more once both opponents pass (passedPriorBonus).
 //
-// Two newer levers were added and then honestly A/B'd against this exact genome
-// over 40k held-out deals with seats rotated (experiments/ab-skat.ts):
-//   - suit HAND game (suitHand*): declining the skat to play the 10 cards closed
-//     when 1.25*topRun + 1.07*trumps >= 9.75 (e.g. seven trumps and two top side
-//     cards, or six and three). A small but real win: +0.2 pts/deal, win rate held
-//     at ~80%. Below ~9.5 it turns sharply negative (the bot plays loose hand games
-//     badly), so the threshold sits deliberately high.
-//   - skatBidBonus: relax the bid bar for the expected skat lift. Sound in theory,
-//     but every positive value LOST points here (the bot's play can't convert the
-//     extra marginal contracts), so it ships at 0 -- the lever exists for tuning,
-//     but speculative bidding is off until declarer play improves.
-// To make the bot bid more often at some cost in win rate, lower suitThreshold /
-// grandThreshold.
+// Two levers added earlier (suit HAND game suitHand*, and skatBidBonus -- relax the
+// bid bar for the expected skat lift) are kept wired so future runs can use them,
+// but this champion left both effectively OFF (hand-game threshold very high,
+// skatBidBonus ~0): its play-weight gains outweighed what those levers bought. To
+// bid more often at some cost in win rate, lower suitThreshold / grandThreshold.
 export const DEFAULT_PARAMS: BotParams = {
-  suitTrump: 1.127,
-  suitSideAce: 0.758,
-  suitJack: 0.078,
-  suitVoid: 0.554,
-  suitTen: -0.108,
-  suitThreshold: 7.193,
+  suitTrump: 1.132,
+  suitSideAce: 0.826,
+  suitJack: 0.194,
+  suitVoid: 0.324,
+  suitTen: 0.18,
+  suitThreshold: 7.416,
 
-  suitHandTop: 1.25,
-  suitHandTrumps: 1.07,
-  suitHandThreshold: 9.75,
+  suitHandTop: 0.454,
+  suitHandTrumps: 0.808,
+  suitHandThreshold: 15.834, // very high -> hand games effectively off for this genome
 
-  grandJack: 0.542,
-  grandAce: 0.865,
-  grandClubJack: 0.887,
-  grandThreshold: 4.359,
+  grandJack: 0.68,
+  grandAce: 0.902,
+  grandClubJack: 0.834,
+  grandThreshold: 4.362,
 
   // Null bidding is kept tight (this bot plays null poorly, so loose nulls are a
-  // money-loser against real defence): no ace and effectively nine+ low cards.
-  nullHandMinLows: 8,
-  nullMinLows: 9.185,
+  // money-loser against real defence): no ace and effectively ten low cards.
+  nullHandMinLows: 9.777,
+  nullMinLows: 9.159,
 
-  passedPriorBonus: 0.102,
-  skatBidBonus: 0, // speculative bidding A/B'd negative; lever kept, tuned off
+  passedPriorBonus: 0.459,
+  skatBidBonus: 0.051, // negligible; speculative bidding stays effectively off
 
   declarerPullTrumpsMinOut: 1,
-  declarerCashSafeOnly: 0,
-  declRuffValue: -0.222,
-  declRuffTrumps: -0.283,
-  declRuffHand: 0.439,
-  declRuffSideHigh: 0.321,
-  declRuffBias: 4.557,
+  declarerCashSafeOnly: 0.834,
+  declRuffValue: -0.001,
+  declRuffTrumps: -0.004,
+  declRuffHand: -0.048,
+  declRuffSideHigh: 0.455,
+  declRuffBias: 4.425,
 
-  defenderLeadHonour: 1,
-  defenderCashMaster: 0.358,
-  defBreakValue: -0.025,
-  defBreakTrumps: 0.776,
-  defBreakHand: 0.259,
-  defBreakSideHigh: -0.142,
-  defBreakLast: 0.206,
-  defBreakBias: 0.004,
+  defenderLeadHonour: 0.607,
+  defenderCashMaster: 0.487,
+  defBreakValue: 0.054,
+  defBreakTrumps: 0.84,
+  defBreakHand: 0.189,
+  defBreakSideHigh: 0.09,
+  defBreakLast: 0.799,
+  defBreakBias: 0.447,
 
-  nullLeadHigh: 0,
+  nullLeadHigh: 0.49,
 };
 
 // The order/identity of the tunable genes, for the evolution harness. Keeping it

@@ -227,10 +227,12 @@ test('suitHandThreshold drives the hand-vs-skat choice on a top-heavy hand', () 
     assert.equal(r.declarer, 0);
     return decideBotAction(r, 0, params)!;
   }
-  const noGrand = { ...DEFAULT_PARAMS, grandThreshold: 99 };
-  assert.equal(declareChoice(noGrand).type, 'playHand', 'top-heavy hand plays closed');
+  // Enable hand games explicitly (the shipped defaults keep them effectively off),
+  // and disable grand so the spade game is the only thing in play.
+  const handOn = { ...DEFAULT_PARAMS, grandThreshold: 99, suitHandTop: 1.25, suitHandTrumps: 1.07, suitHandThreshold: 9.75 };
+  assert.equal(declareChoice(handOn).type, 'playHand', 'top-heavy hand plays closed');
   assert.equal(
-    declareChoice({ ...noGrand, suitHandThreshold: 99 }).type,
+    declareChoice({ ...handOn, suitHandThreshold: 99 }).type,
     'takeSkat',
     'an unreachable hand threshold forces taking the skat',
   );
