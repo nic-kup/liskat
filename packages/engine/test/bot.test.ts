@@ -284,9 +284,9 @@ test('null declarer play: lead low from a short suit, duck high, discard high wh
   );
 });
 
-test('null defender lead uses the declarer voids it remembers', () => {
-  // Seat 0 defends and is on lead; the declarer is seat 1 (middlehand). A history
-  // trick lets the bot infer the declarer's void by its failure to follow.
+test('null defender lead: avoid declarer voids, lead lowest, else void our shortest suit', () => {
+  // Seat 0 defends and is on lead. A history trick lets the bot infer the declarer's
+  // void by its failure to follow.
   const defLead = (hand: Card[], history: { seat: number; card: Card }[][], declarer: number) =>
     ({ phase: 'playing', trickComplete: false, turn: 0, declarer, contract: { type: 'null' }, hands: [hand, [], []], trick: [], completedTricks: history }) as unknown as RoundState;
   const play = (s: RoundState) => {
@@ -295,21 +295,22 @@ test('null defender lead uses the declarer voids it remembers', () => {
     return (a as { card: Card }).card;
   };
 
-  // Hearts led earlier; the declarer (seat 1) discarded a club -> void in hearts. With
-  // the declarer in the middle, lead a low heart into the void even though a lower
-  // card exists elsewhere.
-  const heartsVoid = [[{ seat: 0, card: c('H7') }, { seat: 1, card: c('C7') }, { seat: 2, card: c('H8') }]];
+  // Hearts led earlier; the declarer (seat 1) discarded a club -> void in hearts.
+  // Although H7 is our lowest card, hearts is a void (a free discard for the declarer),
+  // so lead our lowest card in a suit it still holds -- S8.
+  const heartsVoid = [[{ seat: 0, card: c('H8') }, { seat: 1, card: c('C7') }, { seat: 2, card: c('H9') }]];
   assert.ok(
-    cardsEqual(play(defLead([c('H9'), c('S7'), c('C8')], heartsVoid, 1)), c('H9')),
-    'leads a low card into the declarer void',
+    cardsEqual(play(defLead([c('H7'), c('S8'), c('C9')], heartsVoid, 1)), c('S8')),
+    'never leads into a declarer void; leads the lowest card in a held suit',
   );
 
-  // Spades void; our only low-ranked cards are the spade ace and ten -- both forbidden
-  // into a void -- so lead the heart king instead.
-  const spadesVoid = [[{ seat: 0, card: c('S7') }, { seat: 1, card: c('D7') }, { seat: 2, card: c('S8') }]];
+  // Only high cards, no safe void to worry about (declarer void in clubs, which we
+  // do not hold): create our own void fastest by emptying our shortest suit -- lead
+  // the lone heart ace rather than the lower-ranked spade queen.
+  const clubsVoid = [[{ seat: 0, card: c('C7') }, { seat: 1, card: c('H7') }, { seat: 2, card: c('C8') }]];
   assert.ok(
-    cardsEqual(play(defLead([c('SA'), c('S10'), c('HK')], spadesVoid, 1)), c('HK')),
-    'never leads an ace or ten into the declarer void',
+    cardsEqual(play(defLead([c('SQ'), c('SK'), c('HA')], clubsVoid, 1)), c('HA')),
+    'with only high cards, leads from the shortest suit to make a void',
   );
 });
 

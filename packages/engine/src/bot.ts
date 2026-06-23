@@ -284,7 +284,7 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[], p: BotParams): Car
     if (trick.length === 0) {
       // Leading. The declarer leads a low card from a short/safe suit (nullLead); a
       // defender leads using the declarer's known voids (nullDefenderLead).
-      return amDeclarer ? nullLead(legal, hand, p) : nullDefenderLead(s, seat, legal, contract);
+      return amDeclarer ? nullLead(legal, hand, p) : nullDefenderLead(s, legal, contract);
     }
     const tc = trick.map((t) => t.card);
     const led = leadSuit(tc[0], contract);
@@ -525,26 +525,28 @@ function nullDiscard(cards: Card[], hand: Card[], p: BotParams): Card {
 }
 
 // Null defender on lead, using perfect memory of which suits the DECLARER has shown
-// void in. Two ideas:
-//   - If the declarer is void in a suit AND sits in the middle (plays right after
-//     us), lead a low card (7/8/9) of that suit. The declarer must discard and can't
-//     win, our partner plays last and keeps the lead, and we bleed the declarer's
-//     safe cards toward an eventual trap.
-//   - Never lead an ace or ten of a suit the declarer is void in: that just wastes a
-//     winner and lets the declarer dump a high card safely under it.
-// Otherwise lead our lowest card, as before.
-function nullDefenderLead(s: RoundState, seat: Seat, legal: Card[], contract: Contract): Card {
+// void in. You beat a null declarer by making it follow suit up to a card it can't
+// duck, so:
+//   - NEVER lead a suit the declarer is void in: it just discards a high card for
+//     free there and can never be trapped.
+//   - Lead your LOWEST card (a 7 if you have one) into a suit the declarer still
+//     holds -- that gives the best chance it is forced to win the trick.
+//   - If you hold only high cards (nothing to lead low), empty your SHORTEST suit to
+//     create your own void as fast as possible, so you can duck/discard later.
+function nullDefenderLead(s: RoundState, legal: Card[], contract: Contract): Card {
   const declarer = s.declarer;
   if (declarer === null) return cheapest(legal, contract);
   const voids = buildMemory(s, contract).voids[declarer];
-  const declarerInMiddle = declarer === (((seat + 1) % 3) as Seat);
-  const isLow = (c: Card) => c.rank === '7' || c.rank === '8' || c.rank === '9';
-  if (declarerInMiddle) {
-    const voidLows = legal.filter((c) => voids.has(c.suit) && isLow(c));
-    if (voidLows.length) return cheapest(voidLows, contract);
+  const attackable = legal.filter((c) => !voids.has(c.suit));
+  const pool = attackable.length ? attackable : legal; // all suits dead: lead anyway
+  const len = suitCounts(legal);
+  const lows = pool.filter((c) => c.rank === '7' || c.rank === '8' || c.rank === '9');
+  if (lows.length) {
+    // Lead the lowest card, breaking ties toward our shortest suit.
+    return [...lows].sort((a, b) => nullRank(a) - nullRank(b) || len[a.suit] - len[b.suit])[0];
   }
-  const ok = legal.filter((c) => !(voids.has(c.suit) && (c.rank === 'A' || c.rank === '10')));
-  return cheapest(ok.length ? ok : legal, contract);
+  // Only high cards: lead from our shortest suit to void it fastest.
+  return [...pool].sort((a, b) => len[a.suit] - len[b.suit] || nullRank(a) - nullRank(b))[0];
 }
 
 // The card to throw when we don't want the trick: keep trumps and big cards,
