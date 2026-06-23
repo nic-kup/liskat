@@ -81,7 +81,9 @@ function gameValue(contract: Contract, cards: Card[], hand: boolean): number {
 // during the auction (10 cards) and again after the skat (12 cards). Each game
 // type scores the hand as a weighted sum of features and is offered when that
 // score clears its threshold; the weights live in BotParams so they can evolve.
-function evaluate(hand: Card[], p: BotParams): GamePlan | null {
+// `thresholdBonus` lowers the suit/grand bar (e.g. when both opponents have
+// passed and the game is ours for free); 0 during declaring.
+function evaluate(hand: Card[], p: BotParams, thresholdBonus = 0): GamePlan | null {
   const plans: GamePlan[] = [];
 
   for (const suit of SUITS) {
@@ -101,7 +103,7 @@ function evaluate(hand: Card[], p: BotParams): GamePlan | null {
       p.suitJack * jacks +
       p.suitVoid * voids +
       p.suitTen * sideTens;
-    if (score >= p.suitThreshold) {
+    if (score >= p.suitThreshold - thresholdBonus) {
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
   }
@@ -114,7 +116,7 @@ function evaluate(hand: Card[], p: BotParams): GamePlan | null {
     const aces = hand.filter((c) => c.rank === 'A').length;
     const hasClubJack = hand.some((c) => c.rank === 'J' && c.suit === 'C');
     const score = p.grandJack * jacks + p.grandAce * aces + p.grandClubJack * (hasClubJack ? 1 : 0);
-    if (score >= p.grandThreshold) {
+    if (score >= p.grandThreshold - thresholdBonus) {
       const contract: Contract = { type: 'grand' };
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
@@ -141,8 +143,13 @@ function evaluate(hand: Card[], p: BotParams): GamePlan | null {
 // ---- Bidding ---------------------------------------------------------------
 
 function decideBidding(s: RoundState, seat: Seat, p: BotParams): Action {
-  const ceiling = evaluate(s.hands[seat], p)?.value ?? 0;
   const b = s.bidding;
+  // When both opponents have already passed, the contract is ours uncontested, so
+  // relax the bidding bar by a learnable bonus and take a marginal hand we'd
+  // otherwise fold.
+  const othersPassed = b.passed.filter((passed, i) => passed && i !== seat).length;
+  const bonus = othersPassed >= 2 ? p.passedPriorBonus : 0;
+  const ceiling = evaluate(s.hands[seat], p, bonus)?.value ?? 0;
 
   // Forehand may open the auction at a value when everyone else passed out.
   if (b.awaiting === 'forehand-decision') {
@@ -293,13 +300,26 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[], p: BotParams): Car
   const isLast = trick.length === 2;
   const winners = legal.filter((c) => wouldWin(trickCards, c, contract));
   const myTrumpCount = hand.filter((c) => isTrump(c, contract)).length;
+  // Hand-state features shared by the "break in with a trump" decisions below:
+  // not just the trick value, but how many trumps we hold, how many cards remain
+  // in hand, and how many side winners (A/10) we still have.
+  const handSize = hand.length;
+  const highSide = hand.filter((c) => !isTrump(c, contract) && (c.rank === 'A' || c.rank === '10')).length;
 
   if (amDeclarer) {
     if (winners.length > 0) {
       const cheap = cheapest(winners, contract);
       const trumpingIn = isTrump(cheap, contract) && led !== 'T';
-      // Win cheaply, but don't waste a trump on a worthless side-suit trick.
-      if (!trumpingIn || trickValue >= p.trumpInMinValue || isLast) return cheap;
+      // Win cheaply. When that means ruffing a side suit, weigh it: a valuable
+      // trick and spare trumps argue for breaking in; a thin one and few trumps
+      // argue for keeping the trump. Last to play, the ruff is always free.
+      const ruffScore =
+        p.declRuffValue * trickValue +
+        p.declRuffTrumps * myTrumpCount +
+        p.declRuffHand * handSize +
+        p.declRuffSideHigh * highSide +
+        p.declRuffBias;
+      if (!trumpingIn || isLast || ruffScore >= 0) return cheap;
     }
     return lowCard(legal, contract);
   }
@@ -311,12 +331,21 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[], p: BotParams): Car
     return isLast ? highestPoints(legal) : lowCard(legal, contract);
   }
   // Declarer is winning. Overtake cheaply in the led suit for free; only spend a
-  // trump ("break in") with enough trumps or when the trick is already valuable.
+  // trump ("break in") when the weighted case for it clears zero: trick value,
+  // our trump count, cards left, side winners, and the safety of being last.
   const suitOvertake = winners.filter((c) => led !== 'T' && !isTrump(c, contract));
   if (suitOvertake.length > 0) return cheapest(suitOvertake, contract);
   const trumpWin = winners.filter((c) => isTrump(c, contract));
-  if (trumpWin.length > 0 && (myTrumpCount >= p.defenderBreakInTrumps || trickValue >= p.defenderBreakInValue))
-    return cheapest(trumpWin, contract);
+  if (trumpWin.length > 0) {
+    const breakScore =
+      p.defBreakValue * trickValue +
+      p.defBreakTrumps * myTrumpCount +
+      p.defBreakHand * handSize +
+      p.defBreakSideHigh * highSide +
+      p.defBreakLast * (isLast ? 1 : 0) +
+      p.defBreakBias;
+    if (breakScore >= 0) return cheapest(trumpWin, contract);
+  }
   return lowCard(legal, contract);
 }
 

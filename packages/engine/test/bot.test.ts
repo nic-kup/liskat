@@ -141,6 +141,31 @@ test('bidding weights are tunable: a high suit threshold makes a marginal hand p
   assert.equal(picky!.type, 'pass', 'an unreachable suit threshold should force a pass');
 });
 
+test('passedPriorBonus: a marginal hand bids only once both opponents have passed', () => {
+  // Forehand holds five plain spades (no jacks, no aces): a borderline spade game.
+  const r0 = createRound({
+    hands: [
+      [c('SK'), c('SQ'), c('S9'), c('S8'), c('S7'), c('HK'), c('HQ'), c('DK'), c('DQ'), c('CK')],
+      [c('SA'), c('S10'), c('SJ'), c('HA'), c('H10'), c('HJ'), c('H9'), c('DA'), c('D10'), c('DJ')],
+      [c('H8'), c('H7'), c('D9'), c('D8'), c('D7'), c('CA'), c('C10'), c('CJ'), c('CQ'), c('C9')],
+    ],
+    skat: [c('C8'), c('C7')],
+  });
+  // Drive the auction until both opponents have passed and forehand may opt in.
+  let r = applyAction(r0, { type: 'pass', seat: 1 });
+  r = applyAction(r, { type: 'pass', seat: 2 });
+  assert.equal(r.bidding.awaiting, 'forehand-decision');
+
+  // Weights where the hand scores exactly 5 against a suit bar of 6: a pass.
+  const base = {
+    ...DEFAULT_PARAMS,
+    suitTrump: 1, suitSideAce: 0, suitJack: 0, suitVoid: 0, suitTen: 0, suitThreshold: 6,
+    grandThreshold: 99, // disable grand so only the suit decision matters
+  };
+  assert.equal(decideBotAction(r, 0, { ...base, passedPriorBonus: 0 })!.type, 'pass', 'no bonus: marginal hand folds');
+  assert.equal(decideBotAction(r, 0, { ...base, passedPriorBonus: 2 })!.type, 'bid', 'bonus: takes the free game');
+});
+
 test('a hand with no playable game passes the auction', () => {
   // No length, no jacks, no low cards anywhere: nothing this bot will bid.
   const r = createRound({
