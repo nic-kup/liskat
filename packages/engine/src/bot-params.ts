@@ -76,8 +76,15 @@ export interface BotParams {
   defBreakLast: number;
   defBreakBias: number;
 
-  // --- Play: null (declarer must duck every trick, so this is the one real lever).
-  nullLeadHigh: number; // > 0.5: when on lead in a null game, shed the highest safe card instead of the lowest
+  // --- Play: null (declarer must LOSE every trick). On lead, lead a low card from a
+  // short/safe suit: score = nullLeadRank*rank + nullLeadLen*suitLen, lowest leads.
+  // When void in the led suit and free to discard, shed a high card from a short
+  // suit: score = nullDiscardRank*rank - nullDiscardLen*suitLen, highest discarded.
+  // (Following the led suit always plays the highest card that still ducks.)
+  nullLeadRank: number;
+  nullLeadLen: number;
+  nullDiscardRank: number;
+  nullDiscardLen: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -139,7 +146,13 @@ export const DEFAULT_PARAMS: BotParams = {
   defBreakLast: 0.799,
   defBreakBias: 0.447,
 
-  nullLeadHigh: 0.49,
+  // Null-play weights are hand-tuned (this genome almost never bids null, so the
+  // general search gives them no signal); a dedicated null-focused run can refine
+  // them. Lead low from a short suit; discard high from a short suit.
+  nullLeadRank: 1,
+  nullLeadLen: 0.3,
+  nullDiscardRank: 1,
+  nullDiscardLen: 0.3,
 };
 
 // The order/identity of the tunable genes, for the evolution harness. Keeping it
@@ -177,5 +190,8 @@ export const PARAM_KEYS: (keyof BotParams)[] = [
   'defBreakSideHigh',
   'defBreakLast',
   'defBreakBias',
-  'nullLeadHigh',
+  'nullLeadRank',
+  'nullLeadLen',
+  'nullDiscardRank',
+  'nullDiscardLen',
 ];

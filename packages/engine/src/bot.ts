@@ -281,15 +281,22 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[], p: BotParams): Car
 
   // Null is its own world: no trumps, and the declarer must LOSE every trick.
   if (contract.type === 'null') {
-    // On lead, usually keep low cards back to duck with later; some hands do
-    // better shedding the highest danger card first (nullLeadHigh).
-    if (trick.length === 0) return p.nullLeadHigh > 0.5 ? dearest(legal, contract) : cheapest(legal, contract);
+    if (trick.length === 0) {
+      // Leading. The declarer leads a low card from a short/safe suit (nullLead); a
+      // defender leads using the declarer's known voids (nullDefenderLead).
+      return amDeclarer ? nullLead(legal, hand, p) : nullDefenderLead(s, seat, legal, contract);
+    }
     const tc = trick.map((t) => t.card);
+    const led = leadSuit(tc[0], contract);
     const ducks = legal.filter((card) => !wouldWin(tc, card, contract));
     if (amDeclarer) {
-      // Stay under the trick; shed the highest card that still loses so we're not
-      // stranded with a winner later. If we can't duck, the game is already lost.
-      return ducks.length ? dearest(ducks, contract) : dearest(legal, contract);
+      if (ducks.length === 0) return dearest(legal, contract); // forced to win: game already lost
+      // Following the led suit (every legal card is that suit): play the HIGHEST card
+      // that still ducks, shedding a high card while it is safe to. Void in the led
+      // suit (free to discard anything): shed a high card from a short/worst suit so
+      // we void it and can keep discarding safely (nullDiscard).
+      const following = legal.every((c) => leadSuit(c, contract) === led);
+      return following ? dearest(ducks, contract) : nullDiscard(ducks, hand, p);
     }
     // Defender: duck low to keep high cards back, otherwise take it cheaply.
     return ducks.length ? cheapest(ducks, contract) : cheapest(legal, contract);
@@ -474,6 +481,61 @@ function cheapest(cards: Card[], contract: Contract): Card {
 // The strongest of a set (highest trick-strength).
 function dearest(cards: Card[], contract: Contract): Card {
   return [...cards].sort((a, b) => cardStrength(b, contract) - cardStrength(a, contract))[0];
+}
+
+// Rank within a null game (7 lowest .. A highest); also how many of each suit a
+// hand holds, for the null heuristics below.
+function nullRank(c: Card): number {
+  return NULL_ASC.indexOf(c.rank);
+}
+function suitCounts(hand: Card[]): Record<string, number> {
+  const len: Record<string, number> = {};
+  for (const c of hand) len[c.suit] = (len[c.suit] ?? 0) + 1;
+  return len;
+}
+
+// Null declarer on lead: lead a low card from a short or safe suit. Each card is
+// scored by its null rank (low is safe: we will not win the trick) plus how many of
+// that suit we still hold (a short suit both voids us and tends to be safe to lead,
+// since the opponents are long in it and will overtake). Lowest score leads. The two
+// weights are tunable so evolution can set the rank/length tradeoff.
+function nullLead(legal: Card[], hand: Card[], p: BotParams): Card {
+  const len = suitCounts(hand);
+  const score = (c: Card) => p.nullLeadRank * nullRank(c) + p.nullLeadLen * len[c.suit];
+  return [...legal].sort((a, b) => score(a) - score(b))[0];
+}
+
+// Null declarer, void in the led suit and free to discard anything: shed a card to
+// keep the rest of the hand safe. Prefer dumping a HIGH card (a likely future loser
+// we could be forced to win with) from a SHORT suit (so we void it and can keep
+// discarding freely later). Highest score is discarded; the tradeoff is tunable.
+function nullDiscard(cards: Card[], hand: Card[], p: BotParams): Card {
+  const len = suitCounts(hand);
+  const score = (c: Card) => p.nullDiscardRank * nullRank(c) - p.nullDiscardLen * len[c.suit];
+  return [...cards].sort((a, b) => score(b) - score(a))[0];
+}
+
+// Null defender on lead, using perfect memory of which suits the DECLARER has shown
+// void in. Two ideas:
+//   - If the declarer is void in a suit AND sits in the middle (plays right after
+//     us), lead a low card (7/8/9) of that suit. The declarer must discard and can't
+//     win, our partner plays last and keeps the lead, and we bleed the declarer's
+//     safe cards toward an eventual trap.
+//   - Never lead an ace or ten of a suit the declarer is void in: that just wastes a
+//     winner and lets the declarer dump a high card safely under it.
+// Otherwise lead our lowest card, as before.
+function nullDefenderLead(s: RoundState, seat: Seat, legal: Card[], contract: Contract): Card {
+  const declarer = s.declarer;
+  if (declarer === null) return cheapest(legal, contract);
+  const voids = buildMemory(s, contract).voids[declarer];
+  const declarerInMiddle = declarer === (((seat + 1) % 3) as Seat);
+  const isLow = (c: Card) => c.rank === '7' || c.rank === '8' || c.rank === '9';
+  if (declarerInMiddle) {
+    const voidLows = legal.filter((c) => voids.has(c.suit) && isLow(c));
+    if (voidLows.length) return cheapest(voidLows, contract);
+  }
+  const ok = legal.filter((c) => !(voids.has(c.suit) && (c.rank === 'A' || c.rank === '10')));
+  return cheapest(ok.length ? ok : legal, contract);
 }
 
 // The card to throw when we don't want the trick: keep trumps and big cards,

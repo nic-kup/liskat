@@ -251,3 +251,64 @@ test('a hand with no playable game passes the auction', () => {
   const action = decideBotAction(r, 0);
   assert.equal(action.type, 'pass');
 });
+
+test('null declarer play: lead low from a short suit, duck high, discard high when void', () => {
+  // Minimal playing-phase null states (seat 0 is the declarer on turn).
+  const playing = (hand: Card[], trick: { seat: number; card: Card }[]) =>
+    ({ phase: 'playing', trickComplete: false, turn: 0, declarer: 0, contract: { type: 'null' }, hands: [hand, [], []], trick }) as unknown as RoundState;
+  const played = (s: RoundState) => {
+    const a = decideBotAction(s, 0);
+    assert.ok(a && a.type === 'playCard', 'expected a card play');
+    return (a as { card: Card }).card;
+  };
+
+  // On lead: clubs (3 cards) vs spades (2). Both have a 7; lead the 7 from the
+  // shorter suit (closer to a void, and safer to lead).
+  assert.ok(
+    cardsEqual(played(playing([c('C7'), c('C8'), c('C9'), c('S7'), c('SK')], [])), c('S7')),
+    'leads the 7 from the shorter suit',
+  );
+
+  // Following hearts under the H10: HJ would win (J ranks above 10 in null), so play
+  // the highest card that still ducks -- H8.
+  assert.ok(
+    cardsEqual(played(playing([c('HJ'), c('H8'), c('H7'), c('C7')], [{ seat: 2, card: c('H10') }])), c('H8')),
+    'plays the highest card in suit that still loses the trick',
+  );
+
+  // Void in the led suit (diamonds): free to discard, so shed the most dangerous high
+  // card -- the club ace.
+  assert.ok(
+    cardsEqual(played(playing([c('CA'), c('C7'), c('S8'), c('S7')], [{ seat: 2, card: c('D9') }])), c('CA')),
+    'discards a high card when void in the led suit',
+  );
+});
+
+test('null defender lead uses the declarer voids it remembers', () => {
+  // Seat 0 defends and is on lead; the declarer is seat 1 (middlehand). A history
+  // trick lets the bot infer the declarer's void by its failure to follow.
+  const defLead = (hand: Card[], history: { seat: number; card: Card }[][], declarer: number) =>
+    ({ phase: 'playing', trickComplete: false, turn: 0, declarer, contract: { type: 'null' }, hands: [hand, [], []], trick: [], completedTricks: history }) as unknown as RoundState;
+  const play = (s: RoundState) => {
+    const a = decideBotAction(s, 0);
+    assert.ok(a && a.type === 'playCard', 'expected a card play');
+    return (a as { card: Card }).card;
+  };
+
+  // Hearts led earlier; the declarer (seat 1) discarded a club -> void in hearts. With
+  // the declarer in the middle, lead a low heart into the void even though a lower
+  // card exists elsewhere.
+  const heartsVoid = [[{ seat: 0, card: c('H7') }, { seat: 1, card: c('C7') }, { seat: 2, card: c('H8') }]];
+  assert.ok(
+    cardsEqual(play(defLead([c('H9'), c('S7'), c('C8')], heartsVoid, 1)), c('H9')),
+    'leads a low card into the declarer void',
+  );
+
+  // Spades void; our only low-ranked cards are the spade ace and ten -- both forbidden
+  // into a void -- so lead the heart king instead.
+  const spadesVoid = [[{ seat: 0, card: c('S7') }, { seat: 1, card: c('D7') }, { seat: 2, card: c('S8') }]];
+  assert.ok(
+    cardsEqual(play(defLead([c('SA'), c('S10'), c('HK')], spadesVoid, 1)), c('HK')),
+    'never leads an ace or ten into the declarer void',
+  );
+});
