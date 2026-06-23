@@ -31,6 +31,16 @@
   const JORDER = ['C', 'S', 'H', 'D']; // matador order, top first (J♣)
   const JSYM: Record<string, string> = { C: '♣J', S: '♠J', H: '♥J', D: '♦J' };
 
+  // --- interactive bidding-sequence demo (section 3) ---
+  const BID_LADDER = [18, 20, 22, 23, 24, 27, 30, 33, 35, 36];
+  // Null games are a set of fixed values; every suit/Grand value is base × mult.
+  const NULL_BID_GAMES = [
+    { value: 23, name: 'Null' },
+    { value: 35, name: 'Null Hand' },
+    { value: 46, name: 'Null Open' },
+    { value: 59, name: 'Null Hand Open' },
+  ];
+
   let game = $state<'suit' | 'grand' | 'null'>('suit');
   let suit = $state('C');
   let jacks = $state<Record<string, boolean>>({ C: true, S: true, H: false, D: false });
@@ -42,6 +52,7 @@
   let schwarz = $state(false);
   let schwarzAnn = $state(false);
   let ouvert = $state(false);
+  let bidPick = $state(36);
 
   function toggleJack(s: string) {
     jacks = { ...jacks, [s]: !jacks[s] };
@@ -70,6 +81,18 @@
     const next = n < 4 ? JSYM[JORDER[n]] : null;
     if (withTop) return n === 4 ? 'You hold all four Jacks.' : `You hold ${run}, but not ${next}.`;
     return n === 4 ? 'You hold no Jacks.' : `You’re missing ${run}, but hold ${next}.`;
+  });
+
+  // Every game whose value equals the selected bid. A single number can match
+  // several games (e.g. 36 is a Clubs game ×3 or a Diamonds game ×4), which is
+  // why bidders usually climb the ladder one step at a time.
+  const bidGames = $derived.by(() => {
+    const v = bidPick;
+    const out: { name: string; detail: string }[] = [];
+    for (const n of NULL_BID_GAMES) if (n.value === v) out.push({ name: n.name, detail: 'a fixed value' });
+    if (v % GRAND_BASE === 0 && v / GRAND_BASE >= 2) out.push({ name: 'Grand', detail: `${GRAND_BASE} × ${v / GRAND_BASE}` });
+    for (const s of SUITS) if (v % s.base === 0 && v / s.base >= 2) out.push({ name: s.label, detail: `${s.base} × ${v / s.base}` });
+    return out;
   });
 
   // Keep the extras legal as you click them. Announcements need a Hand game;
@@ -150,7 +173,7 @@
 
   <section>
     <h2>1. The cards: eyes and strength</h2>
-    <p>Skat uses 32 cards: 7, 8, 9, 10, Jack, Queen, King and Ace in four suits. Two separate things about a card matter, and they are not the same.</p>
+    <p>Skat uses 32 cards: 7, 8, 9, 10, Jack, Queen, King and Ace in four suits. Each card has a value (called eyes) and a relative strength. These two values don't align.</p>
 
     <h3>Eyes (card points)</h3>
     <p>Each card is worth a number of "eyes". They add up to 120 in the whole deck. As the declarer you need 61 eyes to win the deal.</p>
@@ -170,22 +193,24 @@
     <p>After the Jacks, the cards of a suit rank like this, high to low:</p>
     <div class="row">{#each SUIT_RANK as id}{@render card(id)}{/each}</div>
     <p class="note">So the 10 sits just below the Ace in both eyes and strength, while the Jacks jump to the very top.</p>
+    <p>The Jacks are the most powerful cards, yet each is worth only 2 eyes. That makes them safe to play early: you can win a trick or seize the lead without handing over many eyes.</p>
   </section>
 
   <section>
-    <h2>2. Suit games</h2>
+    <h2>2. Game types</h2>
+    <p>When you win the auction you name one of three kinds of game.</p>
+
+    <h3>Suit games</h3>
     <p>In a suit game you choose a trump suit. The trumps are that whole suit plus all four Jacks, so eleven cards are trumps. Any trump beats any non-trump.</p>
     <p>Here is a hand sorted for a Clubs game. Trumps are on the left (the Jacks first, then the clubs), followed by the side suits:</p>
     <div class="row hand">{#each SORTED_HAND as id}{@render card(id)}{/each}</div>
     <p>The full trump order in a Clubs game runs:</p>
     <div class="row">{#each CLUB_TRUMPS as id}{@render card(id)}{/each}</div>
-    <p class="note">Each suit has a base value: Diamonds 9, Hearts 10, Spades 11, Clubs 12. You win the deal by taking at least 61 eyes.</p>
-  </section>
+    <p class="note">You win the deal by taking at least 61 eyes.</p>
 
-  <section>
-    <h2>3. Grand and Null</h2>
     <h3>Grand</h3>
-    <p>In a Grand only the four Jacks are trumps. Every other card simply follows its suit, ranking A, 10, K, Q, 9, 8, 7. Grand has the highest base value, 24, and you still need 61 eyes to win.</p>
+    <p>In a Grand only the four Jacks are trumps. Every other card simply follows its suit, ranking A, 10, K, Q, 9, 8, 7. The Jacks act as a suit of their own: if a Jack is led, you must play a Jack when you hold one. Grand has the highest base value of any game, and you still need 61 eyes to win.</p>
+
     <h3>Null</h3>
     <p>In a Null there are no trumps and the goal flips: you win only by losing every single trick. The cards rank plainly, so the Jack drops back into its normal place between Queen and 10:</p>
     <div class="row">{#each NULL_ORDER as id}{@render card(id)}{/each}</div>
@@ -193,12 +218,15 @@
   </section>
 
   <section>
-    <h2>4. Bidding</h2>
-    <p>Before play, the three players bid to decide who becomes the declarer. Players call rising numbers: 18, 20, 22, 23, 24 and so on. Your number is a promise that your game will be worth at least that much.</p>
-    <p>The highest bidder wins the auction and becomes the declarer. They may pick up the two cards in the Skat and then discard two, or play the hand as dealt. Then they name the game: a suit, Grand or Null.</p>
+    <h2>3. Bidding</h2>
+    <p>After the deal, the three players bid to decide who becomes the declarer. They call rising numbers: 18, 20, 22, 23, 24 and so on. Your number is a promise that your game will be worth at least that much. Below we explain where these numbers come from and what they mean.</p>
+
+    <h3>How the auction runs</h3>
+    <p>The three seats are Forehand (to the dealer's left), Middlehand and Rearhand. Middlehand calls the first number to Forehand, who either holds (accepts it) or passes; they trade rising calls until one drops out. Rearhand then bids the same way to whoever is left. The last player still in wins the auction and becomes the declarer.</p>
+    <p>The declarer picks up the two Skat cards and discards two (or plays the hand as dealt), then names the game: a suit, Grand or Null. Only then does play begin, and <strong>Forehand always leads the first trick, whoever won the auction.</strong></p>
 
     <h3>Matadors (with or without)</h3>
-    <p>A game value is the base value times a multiplier, and the multiplier starts from your "matadors". Matadors are the run of top trumps you hold without a gap, counting down from the strongest card, the Jack of Clubs.</p>
+    <p>The multiplier behind a game value starts from your "matadors": the run of top trumps you hold without a gap, counting down from the strongest card, the Jack of Clubs.</p>
     <p>If you hold the Jack of Clubs, you play "with" as many top trumps as you hold in an unbroken row. If you do not, you play "without" the top trumps you are missing in a row. The number is the same either way and is added to the multiplier. Click the Jacks below to try it:</p>
 
     <div class="matdemo">
@@ -219,11 +247,39 @@
     </div>
 
     <p class="note">We count the Jacks here; in a suit game the run can continue into the trump suit (A, 10, K and so on), so a matador count above 4 is possible.</p>
-    <p class="note">So the multiplier is: matadors + 1 for the game itself, plus one more for each extra (Hand, Schneider, Schwarz, Open, and the announced versions). You win if you take 61 eyes and your game is worth at least your bid.</p>
+
+    <h3>Game value</h3>
+    <p>Every game is built on a base value:</p>
+    <ul>
+      <li>Diamonds 9, Hearts 10, Spades 11, Clubs 12</li>
+      <li>Grand 24</li>
+      <li>Null is special: a fixed value (23, rising to 35, 46 or 59 for Hand and Open)</li>
+    </ul>
+    <p>For suit and Grand games the value is the base times one plus the multipliers: <strong>base × (1 + mults)</strong>. The mults are your matadors plus one for each extra (Hand, Schneider, Schwarz, Open). You win when you take 61 eyes and your game is worth at least your bid.</p>
+
+    <h3>The bidding sequence</h3>
+    <p>The usual bidding sequence climbs through these values. The lowest are just the cheapest games anyone could hold: base × 2, one matador plus the game itself. The same number can fit more than one game, and every call leaks a little about a hand, so players usually go up one step at a time rather than jumping. Tap a number to see which games are worth exactly that:</p>
+
+    <div class="biddemo">
+      <div class="bidladder">
+        {#each BID_LADDER as v}
+          <button class="bidbtn" class:sel={bidPick === v} onclick={() => (bidPick = v)}>{v}</button>
+        {/each}
+      </div>
+      <div class="bidgames">
+        <p class="bidgames-head">Games worth <strong>{bidPick}</strong>:</p>
+        <ul>
+          {#each bidGames as g}
+            <li><strong>{g.name}</strong>: {g.detail}</li>
+          {/each}
+        </ul>
+      </div>
+    </div>
+    <p class="note">Some numbers (like 36) fit several games at once; working up through each step is how players read what their opponents might be holding.</p>
   </section>
 
   <section>
-    <h2>5. Score calculator</h2>
+    <h2>4. Score calculator</h2>
     <p>Pick a game, click the Jacks you hold, and toggle the extras to see the game value. <em>Announced</em> extras are committed before play (and lose the game if you fall short); <em>achieved</em> ones are simply what happened at the table. Unselected Jacks are greyed out.</p>
 
     <div class="calc">
@@ -283,7 +339,7 @@
             <button class:sel={schneider} onclick={() => (schneider = !schneider)}>Schneider</button>
             <button class:sel={schwarz} onclick={() => (schwarz = !schwarz)}>Schwarz</button>
           {:else}
-            <span class="calc-na">Won or lost — nothing scored in play.</span>
+            <span class="calc-na">Won or lost: nothing scored in play.</span>
           {/if}
         </div>
       </div>
@@ -294,7 +350,7 @@
           <div class="calc-formula">{calc.label} = {calc.value}</div>
         {:else if calc.failed}
           <div class="calc-value loss">−{calc.value * 2}</div>
-          <div class="calc-formula loss">Announced but not made — game lost</div>
+          <div class="calc-formula loss">Announced but not made: game lost</div>
           <div class="calc-formula">−2 × {calc.value} = −{calc.value * 2}</div>
         {:else}
           <div class="calc-value">{calc.value}</div>
@@ -307,7 +363,7 @@
   </section>
 
   <section>
-    <h2>6. A match</h2>
+    <h2>5. A match</h2>
     <p>A match is several deals with the deal rotating each time, so everyone takes a turn in each seat. Scores add up across the deals. You can play a set number of deals (6, 12 or 36) or race to a target score (250 or 1000).</p>
   </section>
 
@@ -420,12 +476,51 @@
     opacity: 0.32;
     filter: grayscale(1);
   }
-  .matdemo {
+  .matdemo,
+  .biddemo {
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid rgba(255, 255, 255, 0.12);
     border-radius: 14px;
     padding: 14px 16px;
     margin: 14px 0;
+  }
+  .bidladder {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .bidbtn {
+    min-width: 46px;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    background: rgba(255, 255, 255, 0.06);
+    color: inherit;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+  }
+  .bidbtn:hover {
+    background: rgba(255, 255, 255, 0.12);
+  }
+  .bidbtn.sel {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 700;
+  }
+  .bidgames {
+    margin-top: 12px;
+    /* Reserve room for the tallest result (two games) so the box doesn't jump. */
+    min-height: 70px;
+  }
+  .bidgames-head {
+    margin: 0;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .bidgames ul {
+    margin: 4px 0 0;
   }
   .matdemo-top {
     display: flex;
@@ -540,6 +635,14 @@
   p {
     line-height: 1.5;
     margin: 8px 0;
+  }
+  ul {
+    margin: 8px 0;
+    padding-left: 22px;
+    line-height: 1.6;
+  }
+  li {
+    margin: 2px 0;
   }
   .note {
     color: var(--muted);
