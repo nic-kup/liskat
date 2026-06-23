@@ -312,3 +312,20 @@ test('null defender lead uses the declarer voids it remembers', () => {
     'never leads an ace or ten into the declarer void',
   );
 });
+
+test('defenderSafeLead steers a low lead away from a suit the declarer can ruff', () => {
+  // Suit game, clubs trump. Seat 0 defends and is on lead; declarer is seat 2. The
+  // history trick shows the declarer ruffed a heart -> void in hearts with trumps
+  // still out, so leading hearts would hand it a free ruff.
+  const heartsRuffed = [[{ seat: 0, card: c('H7') }, { seat: 1, card: c('S8') }, { seat: 2, card: c('C8') }]];
+  const pick = (safeLead: number) => {
+    const s = { phase: 'playing', trickComplete: false, turn: 0, declarer: 2, contract: { type: 'suit', suit: 'C' }, hands: [[c('H8'), c('S9'), c('SQ')], [], []], trick: [], completedTricks: heartsRuffed, declarerTrickPoints: [], defenderTrickPoints: [] } as unknown as RoundState;
+    const a = decideBotAction(s, 0, { ...DEFAULT_PARAMS, defenderSafeLead: safeLead });
+    assert.ok(a && a.type === 'playCard', 'expected a card play');
+    return (a as { card: Card }).card;
+  };
+  // Off (default): leads the lowest card overall -- the heart, into the ruff.
+  assert.ok(cardsEqual(pick(0), c('H8')), 'without the lever, leads the lowest card (into the ruffable suit)');
+  // On: avoids hearts, leads the low spade instead.
+  assert.ok(cardsEqual(pick(1), c('S9')), 'with the lever, avoids the suit the declarer can ruff');
+});

@@ -66,6 +66,7 @@ export interface BotParams {
   // --- Play: defender, suit/grand.
   defenderLeadHonour: number; // > 0.5: when partner sits behind the declarer, lead a K/Q up to them instead of a dead low card
   defenderCashMaster: number; // > 0.5: on lead, cash any card that has become the master of its suit (and can't be ruffed), not just aces
+  defenderSafeLead: number; // > 0.5: when shedding a low card, avoid a suit the declarer is void in and could ruff (else any low card; sometimes forcing a ruff is better)
   // Whether to spend a trump to beat the declarer, scored like the declarer's ruff
   // (trick value, own trumps, cards left, high side cards) plus a term for being
   // last to play, where a ruff is safe from an over-ruff; breaks in when >= 0.
@@ -139,6 +140,7 @@ export const DEFAULT_PARAMS: BotParams = {
 
   defenderLeadHonour: 0.607,
   defenderCashMaster: 0.487,
+  defenderSafeLead: 0, // A/B'd below; 0 = current behaviour (no ruff-avoidance steering)
   defBreakValue: 0.054,
   defBreakTrumps: 0.84,
   defBreakHand: 0.189,
@@ -184,6 +186,7 @@ export const PARAM_KEYS: (keyof BotParams)[] = [
   'declRuffBias',
   'defenderLeadHonour',
   'defenderCashMaster',
+  'defenderSafeLead',
   'defBreakValue',
   'defBreakTrumps',
   'defBreakHand',

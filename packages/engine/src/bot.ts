@@ -457,6 +457,15 @@ function leadAsDefender(
     const honours = nonTrumps.filter((c) => (c.rank === 'K' || c.rank === 'Q') && (!acePlayed(c.suit) || !tenPlayed(c.suit)));
     if (honours.length) return honours.sort((a, b) => cardStrength(b, contract) - cardStrength(a, contract))[0];
   }
+  // Shedding a low card: with defenderSafeLead, steer away from a suit the declarer
+  // can RUFF (it has shown void there and still has trumps out) -- leading such a
+  // suit hands the declarer a free trump trick. Prefer the lowest card from a suit
+  // the declarer must still follow. (Off when no safe suit exists, and sometimes
+  // forcing the declarer to ruff is the better defence, so the lever is learnable.)
+  if (p.defenderSafeLead > 0.5 && declarer !== null) {
+    const safe = nonTrumps.filter((c) => !someoneCanRuff(c.suit, [declarer], mem, trumpsOut));
+    if (safe.length) return lowCard(safe, contract);
+  }
   return lowCard(nonTrumps, contract);
 }
 
