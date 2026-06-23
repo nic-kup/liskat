@@ -1,5 +1,5 @@
 // Lightweight accounts: username + password, with an optional email kept only
-// for a future password reset. Mirrors lichess's spirit — anonymous play stays
+// for a future password reset. Mirrors lichess's spirit: anonymous play stays
 // first-class, no tracking, minimal data. Passwords are hashed with Node's
 // built-in scrypt (memory-hard, no external dependency). Users and sessions are
 // persisted as JSON files under data/ (gitignored); fine at this scale and
@@ -29,7 +29,7 @@ interface User {
 }
 
 interface Session {
-  thash: string; // sha256(token) — we never store the raw token
+  thash: string; // sha256(token); we never store the raw token
   userId: string;
   createdAt: number;
 }

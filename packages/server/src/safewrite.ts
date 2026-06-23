@@ -30,7 +30,7 @@ async function doWrite(file: string, data: string): Promise<void> {
 //
 // The chains map self-cleans: each entry deletes itself once it settles unless a
 // newer write has already claimed the tail. This matters because some callers
-// (match-replay details) write a *unique* path per match — without cleanup the
+// (match-replay details) write a *unique* path per match; without cleanup the
 // map would gain one dead entry per match recorded, forever.
 export function safeWrite(file: string, data: string): Promise<void> {
   const prev = chains.get(file) ?? Promise.resolve();

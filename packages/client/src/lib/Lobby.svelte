@@ -130,7 +130,7 @@
 {#if showCreate}
   <div class="overlay" role="presentation" onclick={() => (showCreate = false)}>
     <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
-      <h2>Private table — choose a game type</h2>
+      <h2>Private table: choose a game type</h2>
       <label class="opt"><input type="checkbox" bind:checked={createTimed} /> Time control (10s per move + time bank)</label>
       <div class="grid">
         {#each QUICK as q}
@@ -159,7 +159,7 @@
     align-items: center;
     /* The account modal renders inside here; keep the whole layer above the
        lobby so opacity-reduced buttons (greyed "create", disabled "join")
-       — which form their own stacking contexts — can't paint over it. */
+       (which form their own stacking contexts) can't paint over it. */
     z-index: 200;
   }
   .bottombar {

@@ -1,13 +1,13 @@
 // Per-account Elo ratings and match history. Skat is three-handed, so a single
 // match doesn't map onto two-player Elo cleanly: three equal players each win
-// only 1/3 of the time. We use the pairwise-duel decomposition — a 3-player
+// only 1/3 of the time. We use the pairwise-duel decomposition: a 3-player
 // match is the three head-to-head duels it contains:
 //
 //   E_i = Σ_{j≠i} 1/(1+10^((R_j-R_i)/400))   // opponents you're expected to beat (0..2)
 //   S_i = Σ_{j≠i} {1 above, ½ tie, 0 below}  // opponents you actually beat (0..2)
 //   R_i += K·(S_i - E_i)
 //
-// For equal players E_i = 1, so finishing 1st/2nd/3rd gives +K / 0 / −K — each
+// For equal players E_i = 1, so finishing 1st/2nd/3rd gives +K / 0 / −K, each
 // 1/3 of the time, zero-sum across the table, and the full ranking counts.
 //
 // Ratings are kept per match type (the 5 formats). Persisted as JSON under

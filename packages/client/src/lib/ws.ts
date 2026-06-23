@@ -80,7 +80,7 @@ function scheduleReconnect(): void {
 }
 
 export function connect(): void {
-  // A live socket or a pending reconnect already covers us — never open a second.
+  // A live socket or a pending reconnect already covers us; never open a second.
   if (socket || reconnectTimer) return;
   let ws: WebSocket;
   try {

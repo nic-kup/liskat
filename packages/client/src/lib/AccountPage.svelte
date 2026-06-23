@@ -50,7 +50,7 @@
     return m.results.filter((r) => r.username !== me);
   }
   function nameOf(slot: number): string {
-    return detail?.players.find((p) => p.slot === slot)?.username ?? '—';
+    return detail?.players.find((p) => p.slot === slot)?.username ?? '-';
   }
   function contractLabel(c: DealReplay['contract']): string {
     if (!c) return 'Passed in';
@@ -92,7 +92,7 @@
     <button class="back" onclick={() => (dealIdx = null)}>← Deal list</button>
     <h1>Deal {d.deal}</h1>
     {#if d.passedIn}
-      <p class="muted">Everyone passed — no game was played.</p>
+      <p class="muted">Everyone passed: no game was played.</p>
     {:else}
       <p class="lead">
         {@render mk(d.declarerSlot ?? 0)} <strong>{nameOf(d.declarerSlot ?? 0)}</strong> played {contractLabel(d.contract)}{d.ouvert ? ' Open' : ''}
@@ -158,8 +158,8 @@
         {#each detail.deals as d, i}
           <tr class="clickable" onclick={() => (dealIdx = i)}>
             <td>{d.deal}</td>
-            <td>{#if d.declarerSlot !== null}{@render mk(d.declarerSlot)} {nameOf(d.declarerSlot)}{:else}<span class="muted">—</span>{/if}</td>
-            <td>{d.passedIn ? '—' : contractLabel(d.contract)}</td>
+            <td>{#if d.declarerSlot !== null}{@render mk(d.declarerSlot)} {nameOf(d.declarerSlot)}{:else}<span class="muted">-</span>{/if}</td>
+            <td>{d.passedIn ? '-' : contractLabel(d.contract)}</td>
             <td>{#if d.passedIn}<span class="muted">passed</span>{:else if d.result}<span class:win={d.result.won} class:lose={!d.result.won}>{d.result.won ? 'won' : 'lost'} {d.result.value}</span>{/if}</td>
             <td class="muted">{d.scores.join(' / ')}</td>
           </tr>

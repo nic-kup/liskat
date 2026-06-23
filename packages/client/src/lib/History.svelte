@@ -10,7 +10,7 @@
   let { history, players, matchOver = false }: Props = $props();
   let open = $state(false);
   const mySlot = $derived(players.find((p) => p.you)?.slot ?? -1);
-  // Once the match is over, open the panel — on a phone it's shown centered as
+  // Once the match is over, open the panel; on a phone it's shown centered as
   // the post-match summary.
   $effect(() => {
     if (matchOver) open = true;
@@ -101,7 +101,7 @@
   .hname {
     font-weight: 600;
   }
-  /* No room for the history panel on a phone — the seats and hand take it all.
+  /* No room for the history panel on a phone; the seats and hand take it all.
      The exception is after the match, when it's the summary: show it centered. */
   @media (max-width: 980px) {
     .history {

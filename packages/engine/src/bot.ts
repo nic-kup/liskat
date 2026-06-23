@@ -3,7 +3,7 @@
 // it returns one legal Action for every phase (bidding, declaring, play).
 //
 // The bot only ever looks at its OWN hand plus public information (the cards on
-// the table, the cards already played, and — when it is the declarer — its own
+// the table, the cards already played, and (when it is the declarer) its own
 // skat discard). It does not peek at the opponents' hands, so it plays fair.
 //
 // The bidding and play heuristics follow common club-level guidance:
@@ -76,7 +76,7 @@ function evaluate(hand: Card[]): GamePlan | null {
   {
     // Grand lives on jacks and aces. Three jacks plus an ace is a sound grand;
     // with only two jacks you need a fistful of aces behind them (the opponents
-    // hold the other two jacks, so thin grands go down) — and the top jack (clubs)
+    // hold the other two jacks, so thin grands go down), and the top jack (clubs)
     // to be sure of the trump lead. Jack-rich but ace-poor hands go down too often.
     const jacks = hand.filter((c) => c.rank === 'J').length;
     const aces = hand.filter((c) => c.rank === 'A').length;
@@ -89,7 +89,7 @@ function evaluate(hand: Card[]): GamePlan | null {
 
   {
     // A null needs to duck every trick, so an ace (which can never go under
-    // another card) is a liability — only bid null with none, and only when most
+    // another card) is a liability; only bid null with none, and only when most
     // of the hand is low.
     const lows = hand.filter((c) => c.rank === '7' || c.rank === '8' || c.rank === '9').length;
     const aces = hand.filter((c) => c.rank === 'A').length;
@@ -293,7 +293,7 @@ function cashOrDump(hand: Card[], contract: Contract): Card {
 
 // Defender on lead. Two ideas drive the choice:
 //   - When our partner sits BEHIND the declarer (the declarer plays middlehand,
-//     our partner plays last), lead an honour up to them — a king or queen in a
+//     our partner plays last), lead an honour up to them: a king or queen in a
 //     side suit whose ace or ten is still out. That forces the declarer to spend
 //     a top card or lets our partner win/schmier over them, while we keep our own
 //     ace back.
@@ -316,8 +316,8 @@ function leadAsDefender(s: RoundState, seat: Seat, hand: Card[], contract: Contr
   if (masterTen) return masterTen;
 
   // No winner to cash. If our partner sits BEHIND the declarer (declarer plays
-  // middlehand, partner plays last), lead an honour up to them — a king or queen
-  // in a side suit whose ace or ten is still live — rather than a dead low card.
+  // middlehand, partner plays last), lead an honour up to them (a king or queen
+  // in a side suit whose ace or ten is still live) rather than a dead low card.
   // It pressures the declarer's top cards and lets our partner win or schmier
   // over them. Prefer the king over the queen.
   const partnerBehindDeclarer = s.declarer !== null && s.declarer === ((seat + 1) % 3);
@@ -331,7 +331,7 @@ function leadAsDefender(s: RoundState, seat: Seat, hand: Card[], contract: Contr
 // ---- Small helpers ---------------------------------------------------------
 
 // Every card played to a trick so far this deal (both point piles plus the
-// trick in progress). The face-down skat is excluded — a defender can't see it.
+// trick in progress). The face-down skat is excluded; a defender can't see it.
 function playedCards(s: RoundState): Card[] {
   return [...s.declarerTrickPoints, ...s.defenderTrickPoints, ...s.trick.map((t) => t.card)];
 }

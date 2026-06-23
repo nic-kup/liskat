@@ -1,7 +1,7 @@
 // Quick-match matchmaking. Players who pick a quick-match format go into a
 // per-format queue (not a visible table). A short "prefer" window lets the
-// engine hold out for a high-quality trio — same account status and similar
-// Elo — then it relaxes to greedy so nobody waits forever. Even when greedy,
+// engine hold out for a high-quality trio (same account status and similar
+// Elo), then it relaxes to greedy so nobody waits forever. Even when greedy,
 // it still picks the *closest* available trio, so preferences are honoured up
 // to the point of not blocking a match.
 

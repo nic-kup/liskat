@@ -95,7 +95,7 @@ const LEAVE_PENALTY = 50;
 function forfeitIfRated(client: Client, table: Table | undefined): void {
   if (!table || !table.rated) return;
   if (table.status !== 'playing' && table.status !== 'between') return;
-  // Only ranked games affect Elo — i.e. every seat must be a logged-in account.
+  // Only ranked games affect Elo: every seat must be a logged-in account.
   if (!table.seats.every((s) => !!s && s.id.startsWith('u_'))) return;
   const type = ratedType(table.format);
   if (type) void applyPenalty(client.id, type, LEAVE_PENALTY);
@@ -167,7 +167,7 @@ function pickBotNames(): [string, string] {
 function createBotTable(format: MatchFormat, seat: (t: Table) => void): Table {
   const table = lobby.create('private', format);
   table.timed = true;
-  // table.rated stays false — bot games never count toward Elo or history.
+  // table.rated stays false; bot games never count toward Elo or history.
   bindTable(table);
   const [a, b] = pickBotNames();
   table.addBot(a);
@@ -257,7 +257,7 @@ function rebindTo(ws: WebSocket, target: Client): void {
 
 // Reattaches a reconnecting socket to a still-living anonymous identity (held
 // open during the grace period after a drop). No-op if there's nothing to
-// resume — the socket keeps its freshly-minted identity.
+// resume; the socket keeps its freshly-minted identity.
 function resume(ws: WebSocket, playerId: string | null): void {
   const provisional = clients.get(ws);
   const prior = playerId ? byId.get(playerId) : undefined;
@@ -274,7 +274,7 @@ function authenticate(ws: WebSocket, token: string): void {
   if (!provisional) return;
   const userId = userIdForToken(token);
   if (!userId) {
-    send(ws, { t: 'error', msg: 'Session invalid or expired — please log in again.' });
+    send(ws, { t: 'error', msg: 'Session invalid or expired. Please log in again.' });
     return;
   }
   const username = usernameForId(userId) ?? 'Player';
@@ -319,7 +319,7 @@ function dropClient(client: Client): void {
 matchmaker.onMatch = (format, ids) => {
   const cs = ids.map((id) => byId.get(id)).filter((c): c is Client => !!c);
   if (cs.length < 3) {
-    // Someone vanished between queueing and matching — requeue the survivors.
+    // Someone vanished between queueing and matching; requeue the survivors.
     for (const c of cs) enqueueClient(c, format);
     return;
   }
@@ -375,7 +375,7 @@ function handle(client: Client, msg: ClientMessage): void {
       if (client.tableId) leaveTable(client);
       const table = lobby.create(msg.visibility, msg.format);
       table.timed = msg.timed !== false; // private games may turn the clock off
-      // table.rated stays false — private games never count toward Elo.
+      // table.rated stays false; private games never count toward Elo.
       bindTable(table);
       joinTable(client, table);
       return;
@@ -500,7 +500,7 @@ async function handleAuth(req: IncomingMessage, res: ServerResponse, action: 're
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
   };
-  if (!authAllowed(ip)) return json(429, { ok: false, error: 'Too many attempts — try again later.' });
+  if (!authAllowed(ip)) return json(429, { ok: false, error: 'Too many attempts. Try again later.' });
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(await readBody(req, 2000));
@@ -656,7 +656,7 @@ async function handleStats(req: IncomingMessage, res: ServerResponse): Promise<v
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
   };
-  if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled — set ADMIN_TOKEN' });
+  if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled: set ADMIN_TOKEN' });
   const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
   if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
   json(200, { ...gatherStats(), feedback: await readFeedback(100) });
@@ -668,7 +668,7 @@ function handleTestGame(req: IncomingMessage, res: ServerResponse): void {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
   };
-  if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled — set ADMIN_TOKEN' });
+  if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled: set ADMIN_TOKEN' });
   const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
   if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
   const table = createTestGame();
@@ -764,7 +764,7 @@ const heartbeatTimer = setInterval(() => {
   for (const ws of wss.clients) {
     const w = ws as unknown as Keepalive;
     if (w.isAlive === false) {
-      // Missed the previous ping — it's gone. Under Bun (our runtime) ws's
+      // Missed the previous ping; it's gone. Under Bun (our runtime) ws's
       // terminate() can throw on an already-torn-down socket, so guard it and
       // fall back to close(); never let heartbeat cleanup crash the loop.
       try {

@@ -2,7 +2,7 @@
   "name": "liskat",
   "version": "0.0.1",
   "private": true,
-  "description": "Liskat — play Skat online for free.",
+  "description": "Liskat: play Skat online for free.",
   "type": "module",
   "workspaces": [
     "packages/*"

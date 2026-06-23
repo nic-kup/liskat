@@ -1,6 +1,6 @@
 // Full match replays, stored compactly one file per match under data/matches/.
 // Cards are kept as their short string ids (e.g. "CA", "C10"), and only the
-// match summaries live in memory (see ratings.ts) — these detail files are read
+// match summaries live in memory (see ratings.ts); these detail files are read
 // on demand when a player drills into a match.
 
 import { readFile, rm } from 'node:fs/promises';

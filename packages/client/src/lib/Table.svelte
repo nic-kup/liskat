@@ -9,7 +9,7 @@
   import { identityForSlot } from './players.ts';
 
   let confirmLeave = $state(false);
-  // Leaving forfeits rating only in a ranked game in progress — i.e. a rated
+  // Leaving forfeits rating only in a ranked game in progress, i.e. a rated
   // game where every player has an account (view.ranked already encodes that).
   const willForfeit = $derived((view?.ranked ?? false) && (view?.status === 'playing' || view?.status === 'between'));
   function onLeave() {
@@ -54,13 +54,13 @@
   });
   // The trick we actually render. Normally this mirrors the server's trick, but a
   // completed (3-card) trick is held on screen for at least MIN_TRICK_HOLD_MS so
-  // it can't flash past when the server sweeps it — e.g. a trick a bot completes,
+  // it can't flash past when the server sweeps it, e.g. a trick a bot completes,
   // which (unlike one you play optimistically) only appears once the server sends
   // it. Released early the moment you play your own next card.
   const MIN_TRICK_HOLD_MS = 600;
   let displayTrick = $state<{ slot: number; card: Card }[]>([]);
   // Hold bookkeeping kept in plain (non-reactive) locals so the effect only ever
-  // *writes* displayTrick — reading it back would make the effect depend on its
+  // *writes* displayTrick; reading it back would make the effect depend on its
   // own output and loop (a fresh `[]` always compares unequal).
   let heldFull = false; // is the rendered trick a held, completed (3-card) one?
   let fullTrickAt = 0; // when the rendered trick reached 3 cards
@@ -68,7 +68,7 @@
   $effect(() => {
     const serverTrick = round?.phase === 'playing' ? round.trick.map((x) => ({ slot: x.slot, card: x.card })) : [];
     // Mid-play (your optimistic card on the board): mirror the other players'
-    // cards and let the template overlay your pending card. Cancel any hold —
+    // cards and let the template overlay your pending card. Cancel any hold;
     // a fresh trick context is active.
     if (pending) {
       if (releaseTimer) {
@@ -127,7 +127,7 @@
   let clockTick = $state(0);
   // The server's last reported remaining time, stamped with when we observed it.
   // As a $derived this recomputes (capturing a fresh timestamp) exactly when the
-  // server snapshot changes — no effect mirroring server state into plain locals,
+  // server snapshot changes: no effect mirroring server state into plain locals,
   // so the countdown can't read a stale base for a tick after an update.
   const clockBase = $derived({ ms: round?.turnRemainingMs ?? 0, at: Date.now() });
   // The seat whose live countdown we show.
@@ -204,7 +204,7 @@
     { k: 'D', name: 'Diamonds' },
   ];
 
-  // Reset the discard/declare picks at the start of each new deal — but ONLY when
+  // Reset the discard/declare picks at the start of each new deal, but ONLY when
   // the deal actually changes. Keying off the whole view object would wipe the
   // player's in-progress selection on every unrelated update (e.g. the move-clock
   // tick or a bot's move elsewhere), which looked like the chosen Skat cards
@@ -349,7 +349,7 @@
   const bidWarning = $derived.by<string | null>(() => {
     if (!round || !declContract || declValue >= round.bid) return null;
     if (declContract.type === 'null') {
-      return annOpen ? 'A Null this size can’t be raised — pick another game.' : 'A Null can’t be raised in play — declare Open or pick another game.';
+      return annOpen ? 'A Null this size can’t be raised. Pick another game.' : 'A Null can’t be raised in play. Declare Open or pick another game.';
     }
     const base = baseValue(declContract);
     const gap = Math.ceil(round.bid / base) - Math.round(declValue / base);
@@ -358,7 +358,7 @@
     if (gap <= 1 && schneiderOpen) return 'You need at least Schneider (90+ card points) to cover it.';
     if (gap <= 1 && schwarzOpen) return 'You need at least Schwarz (every trick) to cover it.';
     if (gap <= 2 && schneiderOpen && schwarzOpen) return 'You need Schwarz (every trick) to cover it.';
-    return 'Even winning every trick won’t cover it — pick a higher game.';
+    return 'Even winning every trick won’t cover it. Pick a higher game.';
   });
 
   function confirmDeclare() {
@@ -377,7 +377,7 @@
   }
 
   function slotName(slot: number): string {
-    return view?.players[slot]?.nick ?? '—';
+    return view?.players[slot]?.nick ?? '-';
   }
 
   // What a given player most recently said in the auction, e.g. "bids 18".
@@ -428,7 +428,7 @@
       <span class="cmid vsep"></span>
       <span class="reserve" class:low={c.low}>{c.reserve}</span>
     {:else}
-      <span class="time">—</span><span class="cmid vsep"></span><span class="reserve">—</span>
+      <span class="time">-</span><span class="cmid vsep"></span><span class="reserve">-</span>
     {/if}
   </div>
   <div class="cline l3">
@@ -488,7 +488,7 @@
         {#if round?.phase === 'finished' || view.status === 'between'}
           <div class="panel result">
             {#if round?.passedIn}
-              <h3>Deal passed — no game.</h3>
+              <h3>Deal passed: no game.</h3>
             {:else if round?.result}
               {@const did = identityForSlot(round.declarerSlot ?? 0)}
               <h3 class:won={round.result.won} class:lost={!round.result.won}>
@@ -537,7 +537,7 @@
                   <button onclick={pass}>Pass</button>
                 </div>
               {:else if round.bidding!.awaiting === 'forehand-decision'}
-                <p class="prompt">Everyone passed — play at the minimum bid?</p>
+                <p class="prompt">Everyone passed. Play at the minimum bid?</p>
                 <div class="bigactions">
                   <button class="primary" onclick={() => bid(18)}>Play for 18</button>
                   <button onclick={pass}>Pass</button>
@@ -550,7 +550,7 @@
                 </div>
               {/if}
             {:else}
-              <p class="prompt muted">Bidding — {slotName(round.bidding!.askerSlot)} to call…</p>
+              <p class="prompt muted">Bidding: {slotName(round.bidding!.askerSlot)} to call…</p>
             {/if}
           </div>
         {:else if round?.phase === 'declaring'}
@@ -611,7 +611,7 @@
             <div class="panel"><p class="prompt muted">{slotName(round.declarerSlot ?? 0)} is choosing the game…</p></div>
           {/if}
         {:else if round?.phase === 'playing'}
-          <!-- Trick board: each player's card lands in a fixed slot — the two
+          <!-- Trick board: each player's card lands in a fixed slot: the two
                opponents across the top, you at the bottom (inverted triangle).
                Empty slots show a faint outline so you can see where cards go. -->
           <div class="trickboard">
@@ -629,7 +629,7 @@
         {/if}
       </div>
 
-      <!-- My seat — de-stacked into a horizontal bar: score+name left, clock
+      <!-- My seat (de-stacked into a horizontal bar): score+name left, clock
            centred, dealer/bid/game right. Modifiers are dropped (you know your
            own game). -->
       <div class="myseat" class:turn={isMyTurn()} class:declarer={round?.declarerSlot === mySlot}>
@@ -660,7 +660,7 @@
               <span class="vsep"></span>
               <span class="reserve" class:low={c.low}>{c.reserve}</span>
             {:else}
-              <span class="time">—</span>
+              <span class="time">-</span>
             {/if}
           </div>
           <div class="mc-right">
@@ -689,7 +689,7 @@
       {#if view.status === 'over' && view.match}
         {@const wid = identityForSlot(view.match.winner ?? 0)}
         <div class="gameover">
-          <h2>Match over — winner: <span class="marker" style="color:{wid.color}">{wid.marker}</span> {slotName(view.match.winner ?? 0)}</h2>
+          <h2>Match over. Winner: <span class="marker" style="color:{wid.color}">{wid.marker}</span> {slotName(view.match.winner ?? 0)}</h2>
           <p>{view.players.map((p) => `${p.nick}: ${view.match!.scores[p.slot]}`).join(' · ')}</p>
           <button class="primary" onclick={leaveTable}>Back to lobby</button>
         </div>
@@ -706,7 +706,7 @@
       <div class="overlay" role="presentation" onclick={() => (confirmLeave = false)}>
         <div class="confirm" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
           <h3>Leave the game?</h3>
-          {#if willForfeit}<p class="warn">This is a ranked game — you will lose 50 rating if you leave.</p>{/if}
+          {#if willForfeit}<p class="warn">This is a ranked game. You will lose 50 rating if you leave.</p>{/if}
           <div class="confirm-actions">
             <button onclick={() => (confirmLeave = false)}>Stay</button>
             <button class="danger" onclick={leaveTable}>Leave</button>
@@ -723,7 +723,7 @@
     margin: 0 auto;
     height: 100vh;
     height: 100dvh;
-    overflow: hidden; /* the play screen is sized to fit — never scrolls */
+    overflow: hidden; /* the play screen is sized to fit; never scrolls */
     display: flex;
     flex-direction: column;
     padding: 12px 12px 6px;
@@ -756,7 +756,7 @@
     gap: 40px;
     margin-top: 8px;
   }
-  /* Seat card — shared by opponents and your own seat. Four fixed lines:
+  /* Seat card, shared by opponents and your own seat. Four fixed lines:
      score | name, time | reserve, dealer | bid | game, then modifiers. Every
      cell keeps its space (filled or blank) so nothing shifts between deals. */
   /* Your info card is styled exactly like an opponent's seat; .myseat just adds
@@ -1058,7 +1058,7 @@
     background: rgba(255, 255, 255, 0.16);
     color: #f2f5f3;
   }
-  /* Anchored just above the seat box (its parent), hugging the right edge — so
+  /* Anchored just above the seat box (its parent), hugging the right edge, so
      it tracks the board's height instead of a magic offset. */
   .lasttrick {
     position: absolute;
@@ -1168,7 +1168,7 @@
     opacity: 0.85;
     box-shadow: 0 0 12px var(--c);
   }
-  /* A subtle white box around your own cards — dark info card on top, hand
+  /* A subtle white box around your own cards: dark info card on top, hand
      below. Extra bottom padding lets the box sit a little lower than the cards.
      (Turn/declarer highlighting lives on the .mycard so it matches opponents.) */
   .myseat {

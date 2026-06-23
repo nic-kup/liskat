@@ -40,7 +40,7 @@
     line-height: 0;
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
     /* Keep card proportions even when a flex row squeezes the width (e.g. the
-       12-card hand on a phone) — otherwise the fixed height made them tall. */
+       12-card hand on a phone); otherwise the fixed height made them tall. */
     aspect-ratio: 250 / 350;
     min-width: 0;
     flex-shrink: 1;

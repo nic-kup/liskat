@@ -77,7 +77,7 @@
           {busy ? '…' : mode === 'login' ? 'Log in' : 'Create account'}
         </button>
       </form>
-      <p class="note">Accounts are optional — you can always play anonymously. We only keep your username and, if you add one, an email for password resets.</p>
+      <p class="note">Accounts are optional. You can always play anonymously. We only keep your username and, if you add one, an email for password resets.</p>
     </div>
   </div>
 {/if}

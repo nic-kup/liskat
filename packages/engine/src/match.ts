@@ -35,7 +35,7 @@ export function seatToPlayer(dealIndex: number, seat: Seat): number {
 }
 
 // Records the outcome of one round and advances the match. Pass the deal index
-// (0-based), the declarer's seat role, and the round result — or null for a
+// (0-based), the declarer's seat role, and the round result, or null for a
 // passed-in deal (no game played, no score change).
 export function recordRound(
   match: MatchState,

@@ -1,7 +1,7 @@
 {
   "name": "@liskat/client",
   "version": "0.0.1",
-  "description": "Liskat web client — the Skat table, in Svelte.",
+  "description": "Liskat web client: the Skat table, in Svelte.",
   "type": "module",
   "scripts": {
     "gen-deck": "node scripts/gen-deck.mjs",

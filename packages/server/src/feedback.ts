@@ -1,6 +1,6 @@
 // Feedback handling: every submission is appended to a local file (so nothing
-// is ever lost and it works with zero configuration), and — if SMTP credentials
-// are provided via env — also emailed.
+// is ever lost and it works with zero configuration), and (if SMTP credentials
+// are provided via env) also emailed.
 //
 // Hostinger SMTP example (set these in the server's environment):
 //   SMTP_HOST=smtp.hostinger.com  (default)
@@ -29,7 +29,7 @@ function mailer(): nodemailer.Transporter | null {
   const user = process.env.SMTP_USER;
   const pass = process.env.SMTP_PASS;
   if (!user || !pass) {
-    transporter = null; // not configured — file storage only
+    transporter = null; // not configured; file storage only
     return null;
   }
   const port = Number(process.env.SMTP_PORT ?? 465);

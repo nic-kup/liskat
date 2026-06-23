@@ -6,7 +6,7 @@ import { Table } from './table.ts';
 import type { LobbyEntry } from './protocol.ts';
 
 function makeId(): string {
-  // Short, link-friendly, lowercase — e.g. "k7m2qp".
+  // Short, link-friendly, lowercase, e.g. "k7m2qp".
   const alphabet = 'abcdefghijkmnpqrstuvwxyz23456789';
   let id = '';
   for (let i = 0; i < 6; i++) id += alphabet[Math.floor(Math.random() * alphabet.length)];

@@ -1,4 +1,4 @@
-// Liskat chat is intentionally limited to a small set of canned phrases — no
+// Liskat chat is intentionally limited to a small set of canned phrases: no
 // free text. This keeps the table friendly and abuse-free. Both the client
 // (to render buttons) and the server (to validate) import this list.
 export const CHAT_PRESETS = [

@@ -77,11 +77,11 @@ test('bots declare disciplined games: ~two-thirds win rate, grand not over-playe
     else if (r.contract!.type === 'suit') suit++;
   }
   assert.ok(declared > 50, `expected plenty of contested deals, got ${declared}`);
-  // The bot should only declare games it can usually make — a good rule of thumb
+  // The bot should only declare games it can usually make; a good rule of thumb
   // is around a two-thirds win rate (disciplined, but not so picky it never bids).
   const winRate = won / declared;
   assert.ok(winRate > 0.55 && winRate < 0.78, `declarer win rate out of band: ${won}/${declared} = ${winRate.toFixed(3)}`);
-  // Grand should not dominate the mix — a grand needs real jack/ace power, so most
+  // Grand should not dominate the mix; a grand needs real jack/ace power, so most
   // declared games are suit games (the old bot bid grand on nearly everything).
   assert.ok(grand < suit, `grand over-played: ${grand} grands vs ${suit} suit games`);
 });
@@ -121,7 +121,7 @@ test('a powerhouse hand (four jacks, two aces) bids', () => {
 });
 
 test('a hand with no playable game passes the auction', () => {
-  // No length, no jacks, no low cards anywhere — nothing this bot will bid.
+  // No length, no jacks, no low cards anywhere: nothing this bot will bid.
   const r = createRound({
     hands: [
       [c('SK'), c('SQ'), c('S10'), c('HK'), c('HQ'), c('H10'), c('DK'), c('DQ'), c('D10'), c('CQ')],

@@ -2,7 +2,7 @@
   let open = $state(false);
   let message = $state('');
   let contact = $state('');
-  let website = $state(''); // honeypot — real users never see/fill this
+  let website = $state(''); // honeypot; real users never see/fill this
   let status = $state<'idle' | 'sending' | 'sent' | 'error'>('idle');
   let error = $state('');
 

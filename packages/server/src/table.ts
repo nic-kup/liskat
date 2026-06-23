@@ -138,7 +138,7 @@ export class Table {
   }
 
   hostNick(): string {
-    return this.seats.find(Boolean)?.nick ?? '—';
+    return this.seats.find(Boolean)?.nick ?? '-';
   }
 
   hasPlayer(id: string): boolean {
@@ -383,7 +383,7 @@ export class Table {
     const r = this.round!;
     const role = roleOfSlot(slot, this.dealIndex);
     if (r.phase === 'bidding') {
-      // A timeout in the auction is a pass — the safe move that never commits a
+      // A timeout in the auction is a pass: the safe move that never commits a
       // player to a contract they didn't choose.
       return { type: 'pass', seat: role };
     }
@@ -408,7 +408,7 @@ export class Table {
 
   // Schedules a bot's move when one is on turn. Re-checks state when it fires
   // (the human may have left, or play moved on), then plays, advances, and
-  // re-arms — which schedules the next bot move if another bot is up.
+  // re-arms, which schedules the next bot move if another bot is up.
   private scheduleBotMove(): void {
     if (this.botSlots.size === 0 || this.status !== 'playing' || !this.round) return;
     const slot = this.activeSlot();

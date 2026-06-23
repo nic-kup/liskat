@@ -97,7 +97,7 @@ test('full round plays out to a scored result with points conserved', () => {
 test('null ends immediately when the declarer wins a trick', () => {
   // Hand-crafted deal: forehand (seat 0) holds the ace of spades and leads it;
   // the other two each hold exactly one (lower) spade, so they must follow and
-  // forehand wins trick one — which loses a Null game right away.
+  // forehand wins trick one, which loses a Null game right away.
   const id = (s: string) => cardFromId(s);
   const deal = {
     hands: [
