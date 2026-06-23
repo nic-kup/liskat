@@ -161,6 +161,14 @@ function pickBotNames(): [string, string] {
   return [BOT_NAMES[i], BOT_NAMES[j]];
 }
 
+// A bot name not already used at this table (so two bots never share a name).
+function freshBotName(table: Table): string {
+  const taken = new Set(table.seats.map((s) => s?.nick));
+  const free = BOT_NAMES.filter((n) => !taken.has(n));
+  const pool = free.length ? free : BOT_NAMES;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
 // Creates an unlisted, never-rated table seated with two heuristic bots, then
 // runs `seat` to add the human (last, so the match auto-starts at three seated).
 // Auto-removed if nobody joins within a couple of minutes.
@@ -400,6 +408,26 @@ function handle(client: Client, msg: ClientMessage): void {
       matchmaker.dequeue(client.id); // a practice game supersedes any pending search
       startPracticeGame(client, msg.format ?? PRACTICE_FORMAT);
       return;
+
+    case 'addBot': {
+      if (!client.tableId) return;
+      const table = lobby.get(client.tableId);
+      // Only a seated player may add a bot, and only to fill an open seat at a
+      // private table that hasn't started yet. (Private games are never rated, so
+      // a bot can't taint a ranked result.)
+      if (!table || !table.hasPlayer(client.id)) return;
+      if (table.visibility !== 'private' || table.status !== 'waiting') {
+        send(client.ws, { t: 'error', msg: 'You can only add a bot to a private table before it starts.' });
+        return;
+      }
+      if (!table.addBot(freshBotName(table))) {
+        send(client.ws, { t: 'error', msg: 'The table is full.' });
+        return;
+      }
+      broadcastTable(table);
+      broadcastLobby();
+      return;
+    }
 
     case 'cancelMatch':
       matchmaker.dequeue(client.id);

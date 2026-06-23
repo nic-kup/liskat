@@ -327,6 +327,11 @@ export function cancelMatch(): void {
   send({ t: 'cancelMatch' });
 }
 
+// Fill an open seat at your private table with a bot.
+export function addBot(): void {
+  send({ t: 'addBot' });
+}
+
 export function createTable(visibility: 'private' | 'public', format: MatchFormat, timed = true): void {
   send({ t: 'createTable', visibility, format, timed });
 }

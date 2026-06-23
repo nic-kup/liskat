@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable } from './ws.ts';
+  import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable, addBot } from './ws.ts';
   import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
@@ -7,6 +7,21 @@
   import Chat from './Chat.svelte';
   import History from './History.svelte';
   import { identityForSlot } from './players.ts';
+  import { crossfade } from 'svelte/transition';
+  import { flip } from 'svelte/animate';
+  import { cubicOut } from 'svelte/easing';
+  import { settings, toggle } from './settings.ts';
+  import { playCardSound } from './sound.ts';
+
+  // A played card flies from its place in the hand to its slot on the trick board:
+  // the hand card (out:sendCard) and the board card (in:receiveCard) share a key
+  // (the card id), so Svelte animates one into the other. Opponents' cards have no
+  // hand counterpart, so they use the fallback (a quick scale-and-fade in).
+  const [sendCard, receiveCard] = crossfade({
+    duration: 230,
+    easing: cubicOut,
+    fallback: () => ({ duration: 170, easing: cubicOut, css: (t) => `opacity:${t}; transform: scale(${0.82 + 0.18 * t})` }),
+  });
 
   let confirmLeave = $state(false);
   // Leaving forfeits rating only in a ranked game in progress, i.e. a rated
@@ -18,6 +33,7 @@
   }
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && confirmLeave) confirmLeave = false;
+    if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
   }
 
   const view = $derived($conn.view as TableView);
@@ -373,8 +389,64 @@
     else if (round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)) {
       pending = card; // show it played at once; the next server view confirms
       playCard(card);
+      playCardSound();
     }
   }
+
+  // ---- Drag a card to the middle to play it (opt-in via settings) ----
+  let settingsOpen = $state(false);
+  let boardEl = $state<HTMLElement | undefined>(undefined);
+  let dragCard = $state<Card | null>(null);
+  let dragX = $state(0);
+  let dragY = $state(0);
+  let dragMoved = $state(false);
+  let overBoard = $state(false);
+  let dragStartX = 0;
+  let dragStartY = 0;
+
+  function canDragPlay(card: Card): boolean {
+    return $settings.dragToPlay && round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card);
+  }
+  // The trick board is the drop target, with a generous margin so you don't have
+  // to be pixel-perfect.
+  function overBoardAt(x: number, y: number): boolean {
+    if (!boardEl) return false;
+    const r = boardEl.getBoundingClientRect();
+    const pad = 60;
+    return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
+  }
+  function onCardPointerDown(e: PointerEvent, card: Card) {
+    if (!canDragPlay(card)) return;
+    dragCard = card;
+    dragStartX = dragX = e.clientX;
+    dragStartY = dragY = e.clientY;
+    dragMoved = false;
+    overBoard = false;
+    window.addEventListener('pointermove', onDragMove);
+    window.addEventListener('pointerup', onDragUp);
+  }
+  function onDragMove(e: PointerEvent) {
+    if (!dragCard) return;
+    dragX = e.clientX;
+    dragY = e.clientY;
+    if (Math.abs(e.clientX - dragStartX) + Math.abs(e.clientY - dragStartY) > 6) dragMoved = true;
+    overBoard = overBoardAt(e.clientX, e.clientY);
+  }
+  function onDragUp() {
+    const card = dragCard;
+    // A plain tap (no real movement) plays too; a drag plays only over the board.
+    const play = !!card && canDragPlay(card) && (!dragMoved || overBoard);
+    endDrag();
+    if (play && card) onCardClick(card);
+  }
+  function endDrag() {
+    dragCard = null;
+    dragMoved = false;
+    overBoard = false;
+    window.removeEventListener('pointermove', onDragMove);
+    window.removeEventListener('pointerup', onDragUp);
+  }
+  $effect(() => () => endDrag()); // clean up listeners if the table unmounts mid-drag
 
   function slotName(slot: number): string {
     return view?.players[slot]?.nick ?? '-';
@@ -449,10 +521,33 @@
     <div class="topbar">
       <button class="ghost" onclick={onLeave}>← Leave</button>
       <button class="wordmark" style="font-weight:800; font-size:18px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={onLeave} title="Home">liskat</button>
-      <div class="info">
-        {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
+      <div class="right">
+        <div class="info">
+          {view.format.kind === 'deals' ? `${view.format.deals} deals` : `Race to ${view.format.target}`}
+        </div>
+        <div class="settings-wrap">
+          <button class="ghost gear" onclick={() => (settingsOpen = !settingsOpen)} title="Settings" aria-label="Settings">⚙</button>
+          {#if settingsOpen}
+            <div class="settings-pop" role="dialog" aria-label="Settings">
+              <label class="setting">
+                <input type="checkbox" checked={$settings.sound} onchange={() => toggle('sound')} />
+                Sound effects
+              </label>
+              <label class="setting">
+                <input type="checkbox" checked={$settings.dragToPlay} onchange={() => toggle('dragToPlay')} />
+                Drag cards to play
+              </label>
+            </div>
+          {/if}
+        </div>
       </div>
     </div>
+
+    {#if dragCard && dragMoved}
+      <div class="dragghost" class:over={overBoard} style="left:{dragX}px; top:{dragY}px">
+        <CardView card={dragCard} width={92} />
+      </div>
+    {/if}
 
     {#if view.status === 'waiting'}
       <div class="waiting">
@@ -467,6 +562,10 @@
             <li>{p.occupied ? p.nick : '· empty seat ·'}</li>
           {/each}
         </ul>
+        {#if view.visibility === 'private' && view.youSlot != null && view.players.some((p) => !p.occupied)}
+          <p class="muted">Or fill a seat with a practice bot:</p>
+          <button class="primary" onclick={addBot}>+ Add a bot</button>
+        {/if}
       </div>
     {:else}
       <!-- Opponents -->
@@ -614,14 +713,18 @@
           <!-- Trick board: each player's card lands in a fixed slot: the two
                opponents across the top, you at the bottom (inverted triangle).
                Empty slots show a faint outline so you can see where cards go. -->
-          <div class="trickboard">
+          <div class="trickboard" class:dragover={overBoard} bind:this={boardEl}>
             {#each [{ pos: 'left', slot: opponents[0]?.slot }, { pos: 'right', slot: opponents[1]?.slot }, { pos: 'me', slot: mySlot }] as p}
               {@const id = identityForSlot(p.slot ?? 0)}
               {@const shown = p.slot != null ? displayTrick.find((x) => x.slot === p.slot) : undefined}
               {@const t = shown ?? (p.slot === mySlot && pending ? { slot: mySlot, card: pending } : undefined)}
               <div class="slot {p.pos}" class:lead={!t && displayTrick.length === 0 && round.turnSlot === p.slot}>
                 <div class="slot-card" class:filled={!!t} style="--c:{id.color}">
-                  {#if t}<CardView card={t.card} fill />{/if}
+                  {#if t}
+                    <div class="flycard" in:receiveCard={{ key: cardId(t.card) }}>
+                      <CardView card={t.card} fill />
+                    </div>
+                  {/if}
                 </div>
               </div>
             {/each}
@@ -675,13 +778,22 @@
           {#each hand as card (cardId(card))}
             {@const selectable = round?.phase === 'declaring' && round.declareStep === 'discard'}
             {@const playable = round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)}
-            <CardView
-              {card}
-              width={92}
-              selected={selected.includes(cardId(card))}
-              dim={round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card)}
-              onclick={selectable || playable ? () => onCardClick(card) : undefined}
-            />
+            {@const dragPlay = playable && $settings.dragToPlay}
+            <div
+              class="handcard"
+              class:dragging={!!dragCard && cardId(dragCard) === cardId(card)}
+              animate:flip={{ duration: 200, easing: cubicOut }}
+              out:sendCard={{ key: cardId(card) }}
+              onpointerdown={dragPlay ? (e) => onCardPointerDown(e, card) : undefined}
+            >
+              <CardView
+                {card}
+                fill
+                selected={selected.includes(cardId(card))}
+                dim={round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card)}
+                onclick={selectable || (playable && !$settings.dragToPlay) ? () => onCardClick(card) : undefined}
+              />
+            </div>
           {/each}
         </div>
       </div>
@@ -738,6 +850,12 @@
     align-items: center;
     font-size: 14px;
     color: var(--muted);
+  }
+  .topbar .right {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
   }
   .info {
     text-align: right;
@@ -1219,6 +1337,79 @@
     align-items: flex-end;
     gap: 4px;
     padding: 0;
+  }
+  /* Each hand card is a flex item up to 92px that shrinks on narrow screens; the
+     CardView fills it. The wrapper carries the play/reflow animations. */
+  .handcard {
+    flex: 0 1 92px;
+    max-width: 92px;
+    min-width: 0;
+    line-height: 0;
+  }
+  /* Wrapper for a card on the trick board, so the fly-in transition has an element
+     to animate without disturbing the CardView. */
+  .flycard {
+    width: 100%;
+    height: 100%;
+  }
+  /* The card being dragged: dim the original in the hand, no scrolling hijack. */
+  .handcard {
+    touch-action: none;
+  }
+  .handcard.dragging {
+    opacity: 0.3;
+  }
+  /* Floating card following the pointer during a drag. */
+  .dragghost {
+    position: fixed;
+    transform: translate(-50%, -55%) rotate(-3deg);
+    width: 92px;
+    pointer-events: none;
+    z-index: 1000;
+    filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.5));
+    transition: transform 0.08s ease;
+  }
+  .dragghost.over {
+    transform: translate(-50%, -55%) scale(1.06);
+  }
+  /* The trick board lights up as a drop target while dragging over it. */
+  .trickboard.dragover {
+    background: rgba(255, 213, 74, 0.08);
+    border-radius: 12px;
+    box-shadow: 0 0 0 2px rgba(255, 213, 74, 0.35) inset;
+  }
+  /* Settings gear + popover in the top bar. */
+  .settings-wrap {
+    position: relative;
+  }
+  .gear {
+    font-size: 18px;
+    line-height: 1;
+  }
+  .settings-pop {
+    position: absolute;
+    top: 110%;
+    right: 0;
+    z-index: 1100;
+    background: #1f2a24;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+    white-space: nowrap;
+  }
+  .setting {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .setting input {
+    cursor: pointer;
   }
   button {
     padding: 8px 12px;
