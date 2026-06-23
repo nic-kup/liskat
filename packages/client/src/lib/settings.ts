@@ -8,7 +8,7 @@ export interface Settings {
 }
 
 const KEY = 'liskat.settings';
-const DEFAULTS: Settings = { sound: true, dragToPlay: false };
+const DEFAULTS: Settings = { sound: true, dragToPlay: true };
 
 function load(): Settings {
   try {
