@@ -62,6 +62,7 @@ export interface RoundState {
   trickWinnerSeat: Seat | null; // winner of the completed-but-uncollected trick
   lastTrick: { seat: Seat; card: Card }[]; // the previous, collected trick (for display)
   lastTrickWinner: Seat | null;
+  completedTricks: { seat: Seat; card: Card }[][]; // every collected trick in play order (lead first): full public play history for memory/inference
   trickCount: number;
   declarerTrickPoints: Card[];
   defenderTrickPoints: Card[];
@@ -117,6 +118,7 @@ export function createRound(d: Deal): RoundState {
     trickWinnerSeat: null,
     lastTrick: [],
     lastTrickWinner: null,
+    completedTricks: [],
     trickCount: 0,
     declarerTrickPoints: [],
     defenderTrickPoints: [],
@@ -140,6 +142,7 @@ function clone(s: RoundState): RoundState {
     announcements: { ...s.announcements },
     trick: s.trick.slice(),
     lastTrick: s.lastTrick.slice(),
+    completedTricks: s.completedTricks.map((t) => t.slice()),
     declarerTrickPoints: s.declarerTrickPoints.slice(),
     defenderTrickPoints: s.defenderTrickPoints.slice(),
     declarerGameCards: s.declarerGameCards.slice(),
@@ -374,6 +377,7 @@ function collectTrick(s: RoundState): RoundState {
   }
   s.lastTrick = s.trick.map((t) => ({ seat: t.seat, card: t.card }));
   s.lastTrickWinner = winnerSeat;
+  s.completedTricks.push(s.trick.map((t) => ({ seat: t.seat, card: t.card })));
   s.trick = [];
   s.trickComplete = false;
   s.trickWinnerSeat = null;

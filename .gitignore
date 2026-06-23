@@ -13,3 +13,7 @@ coverage/
 
 # feedback storage (local)
 packages/server/data/
+
+# bot evolution harness + runs (scripts are throwaway; only the evolved weights,
+# baked into packages/engine/src/bot-params.ts, are committed)
+packages/engine/experiments/

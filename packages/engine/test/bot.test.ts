@@ -4,6 +4,7 @@ import type { Card, Seat } from '../src/types.ts';
 import { createRound, applyAction, legalCards, type RoundState } from '../src/round.ts';
 import { deal } from '../src/deal.ts';
 import { decideBotAction } from '../src/bot.ts';
+import { DEFAULT_PARAMS } from '../src/bot-params.ts';
 import { cardsEqual } from '../src/cards.ts';
 
 const c = (s: string): Card => ({ suit: s[0] as any, rank: s.slice(1) as any });
@@ -63,7 +64,7 @@ test('three bots play many full deals to completion without illegal moves', () =
   }
 });
 
-test('bots declare disciplined games: ~two-thirds win rate, grand not over-played', () => {
+test('bots declare disciplined games: high win rate, grand not over-played', () => {
   let declared = 0;
   let won = 0;
   let grand = 0;
@@ -77,10 +78,12 @@ test('bots declare disciplined games: ~two-thirds win rate, grand not over-playe
     else if (r.contract!.type === 'suit') suit++;
   }
   assert.ok(declared > 50, `expected plenty of contested deals, got ${declared}`);
-  // The bot should only declare games it can usually make; a good rule of thumb
-  // is around a two-thirds win rate (disciplined, but not so picky it never bids).
+  // The weights are tuned for tournament profitability (a lost game costs ~2x a
+  // won one), so the bot is disciplined: it should win a clear majority of what it
+  // declares without being so picky it never bids. This is a sanity band, not a
+  // target -- the evolution optimizes points, not win rate directly.
   const winRate = won / declared;
-  assert.ok(winRate > 0.55 && winRate < 0.78, `declarer win rate out of band: ${won}/${declared} = ${winRate.toFixed(3)}`);
+  assert.ok(winRate > 0.6 && winRate < 0.85, `declarer win rate out of band: ${won}/${declared} = ${winRate.toFixed(3)}`);
   // Grand should not dominate the mix; a grand needs real jack/ace power, so most
   // declared games are suit games (the old bot bid grand on nearly everything).
   assert.ok(grand < suit, `grand over-played: ${grand} grands vs ${suit} suit games`);
@@ -118,6 +121,24 @@ test('a powerhouse hand (four jacks, two aces) bids', () => {
   });
   const action = decideBotAction(r, 0);
   assert.ok(action.type === 'hold' || action.type === 'bid', 'a powerhouse hand should not pass at 18');
+});
+
+test('bidding weights are tunable: a high suit threshold makes a marginal hand pass', () => {
+  // A borderline suit hand: five trumps (incl. two jacks) and a side ace. The
+  // default weights bid it; cranking the suit threshold up makes the same hand
+  // pass, proving the params actually drive the decision.
+  const r = createRound({
+    hands: [
+      [c('CJ'), c('SJ'), c('SA'), c('SK'), c('S9'), c('S8'), c('HA'), c('H9'), c('D8'), c('D7')],
+      [c('HJ'), c('DJ'), c('CA'), c('CK'), c('C9'), c('S10'), c('SQ'), c('HK'), c('HQ'), c('DA')],
+      [c('CQ'), c('C10'), c('C8'), c('C7'), c('S7'), c('H10'), c('H8'), c('H7'), c('DK'), c('DQ')],
+    ],
+    skat: [c('D10'), c('D9')],
+  });
+  const def = decideBotAction(r, 0, DEFAULT_PARAMS);
+  assert.ok(def && def.type !== 'pass', 'default weights should bid this hand');
+  const picky = decideBotAction(r, 0, { ...DEFAULT_PARAMS, suitThreshold: 99 });
+  assert.equal(picky!.type, 'pass', 'an unreachable suit threshold should force a pass');
 });
 
 test('a hand with no playable game passes the auction', () => {

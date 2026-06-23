@@ -6,6 +6,19 @@
 // the table, the cards already played, and (when it is the declarer) its own
 // skat discard). It does not peek at the opponents' hands, so it plays fair.
 //
+// It does, however, have perfect memory of that public record (bot-memory.ts):
+// it remembers every card played, infers which players are void in a suit/trump
+// (they failed to follow it), knows which cards have become masters, and counts
+// the opponents' remaining trumps. Declarer and defender play use this to cash
+// guaranteed winners, avoid feeding aces to a ruff, and stop pulling trumps once
+// the opponents are out.
+//
+// Every threshold the heuristics use is a tunable weight in BotParams
+// (bot-params.ts), defaulting to the hand-tuned DEFAULT_PARAMS. Bidding is a set
+// of linear hand-strength scores (one per game type) compared against a
+// threshold; the weights were refined by self-play evolution (experiments/,
+// gitignored). Callers can pass their own params to A/B or evolve the bot.
+//
 // The bidding and play heuristics follow common club-level guidance:
 //  - bid a suit game with 6+ trumps (or 5 trumps with strong support: two side
 //    aces, or a side ace and two jacks); a grand only with real top-card power
@@ -26,17 +39,23 @@ import { cardId, cardPoints, totalPoints } from './cards.ts';
 import { isTrump, leadSuit, trickWinner, trumpsHighToLow } from './ordering.ts';
 import { countMatadors, previewGameValue } from './scoring.ts';
 import { nextBid } from './bidding.ts';
+import { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
+import { buildMemory, isCategoryMaster, outstandingTrumps, someoneCanRuff, type PlayMemory } from './bot-memory.ts';
+
+export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 
 // The single entry point: a legal move for `seat` in the current state, or null
-// if it is not that seat's turn / nothing to do.
-export function decideBotAction(s: RoundState, seat: Seat): Action | null {
+// if it is not that seat's turn / nothing to do. `params` lets callers (the
+// evolution harness, A/B tests) swap in different weights; production uses the
+// tuned DEFAULT_PARAMS.
+export function decideBotAction(s: RoundState, seat: Seat, params: BotParams = DEFAULT_PARAMS): Action | null {
   switch (s.phase) {
     case 'bidding':
-      return decideBidding(s, seat);
+      return decideBidding(s, seat, params);
     case 'declaring':
-      return decideDeclaring(s, seat);
+      return decideDeclaring(s, seat, params);
     case 'playing':
-      return decidePlay(s, seat);
+      return decidePlay(s, seat, params);
     default:
       return null;
   }
@@ -59,29 +78,43 @@ function gameValue(contract: Contract, cards: Card[], hand: boolean): number {
 }
 
 // The best game this hand can play, or null if nothing is worth bidding. Called
-// during the auction (10 cards) and again after the skat (12 cards).
-function evaluate(hand: Card[]): GamePlan | null {
+// during the auction (10 cards) and again after the skat (12 cards). Each game
+// type scores the hand as a weighted sum of features and is offered when that
+// score clears its threshold; the weights live in BotParams so they can evolve.
+function evaluate(hand: Card[], p: BotParams): GamePlan | null {
   const plans: GamePlan[] = [];
 
   for (const suit of SUITS) {
     const contract: Contract = { type: 'suit', suit };
     const trumps = hand.filter((c) => isTrump(c, contract)).length;
     const sideAces = hand.filter((c) => c.rank === 'A' && c.suit !== suit).length;
+    const sideTens = hand.filter((c) => c.rank === '10' && c.suit !== suit).length;
     const jacks = hand.filter((c) => c.rank === 'J').length;
-    if (trumps >= 6 || (trumps === 5 && (sideAces >= 2 || (sideAces >= 1 && jacks >= 2)))) {
+    // A "side void": a non-trump suit we hold no plain (non-jack) card in, so we
+    // can ruff it. The suit's own jack is a trump, so it doesn't count as cover.
+    const voids = SUITS.filter(
+      (s) => s !== suit && !hand.some((c) => c.suit === s && !isTrump(c, contract)),
+    ).length;
+    const score =
+      p.suitTrump * trumps +
+      p.suitSideAce * sideAces +
+      p.suitJack * jacks +
+      p.suitVoid * voids +
+      p.suitTen * sideTens;
+    if (score >= p.suitThreshold) {
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
   }
 
   {
-    // Grand lives on jacks and aces. Three jacks plus an ace is a sound grand;
-    // with only two jacks you need a fistful of aces behind them (the opponents
-    // hold the other two jacks, so thin grands go down), and the top jack (clubs)
-    // to be sure of the trump lead. Jack-rich but ace-poor hands go down too often.
+    // Grand lives on jacks and aces (and the top jack, clubs, to be sure of the
+    // trump lead). Jack-rich but ace-poor hands go down too often, so aces and
+    // the club jack carry their own weight on top of the jack count.
     const jacks = hand.filter((c) => c.rank === 'J').length;
     const aces = hand.filter((c) => c.rank === 'A').length;
     const hasClubJack = hand.some((c) => c.rank === 'J' && c.suit === 'C');
-    if ((jacks >= 3 && aces >= 1) || (jacks >= 2 && aces >= 3 && hasClubJack)) {
+    const score = p.grandJack * jacks + p.grandAce * aces + p.grandClubJack * (hasClubJack ? 1 : 0);
+    if (score >= p.grandThreshold) {
       const contract: Contract = { type: 'grand' };
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
@@ -95,8 +128,8 @@ function evaluate(hand: Card[]): GamePlan | null {
     const aces = hand.filter((c) => c.rank === 'A').length;
     const contract: Contract = { type: 'null' };
     if (aces === 0) {
-      if (lows >= 8) plans.push({ contract, value: gameValue(contract, hand, true), hand: true });
-      else if (lows >= 7) plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
+      if (lows >= p.nullHandMinLows) plans.push({ contract, value: gameValue(contract, hand, true), hand: true });
+      else if (lows >= p.nullMinLows) plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
   }
 
@@ -107,8 +140,8 @@ function evaluate(hand: Card[]): GamePlan | null {
 
 // ---- Bidding ---------------------------------------------------------------
 
-function decideBidding(s: RoundState, seat: Seat): Action {
-  const ceiling = evaluate(s.hands[seat])?.value ?? 0;
+function decideBidding(s: RoundState, seat: Seat, p: BotParams): Action {
+  const ceiling = evaluate(s.hands[seat], p)?.value ?? 0;
   const b = s.bidding;
 
   // Forehand may open the auction at a value when everyone else passed out.
@@ -127,22 +160,22 @@ function decideBidding(s: RoundState, seat: Seat): Action {
 
 // ---- Declaring -------------------------------------------------------------
 
-function decideDeclaring(s: RoundState, seat: Seat): Action | null {
+function decideDeclaring(s: RoundState, seat: Seat, p: BotParams): Action | null {
   const hand = s.hands[seat];
 
   if (s.declareStep === 'choose') {
     // Take the skat unless the hand is a strong enough null to play closed.
-    const plan = evaluate(hand);
+    const plan = evaluate(hand, p);
     return plan?.hand ? { type: 'playHand', seat } : { type: 'takeSkat', seat };
   }
 
   if (s.declareStep === 'discard') {
-    const contract = chooseFinalContract(hand, s.bid, !s.tookSkat);
+    const contract = chooseFinalContract(hand, s.bid, !s.tookSkat, p);
     return { type: 'discard', seat, cards: chooseDiscards(hand, contract) };
   }
 
   if (s.declareStep === 'contract') {
-    return { type: 'declareContract', seat, contract: chooseFinalContract(hand, s.bid, !s.tookSkat) };
+    return { type: 'declareContract', seat, contract: chooseFinalContract(hand, s.bid, !s.tookSkat, p) };
   }
 
   return null;
@@ -151,8 +184,8 @@ function decideDeclaring(s: RoundState, seat: Seat): Action | null {
 // The game to declare: the hand's natural best game when it covers the bid,
 // otherwise the cheapest game that does (so we are not charged for an overbid we
 // could have avoided).
-function chooseFinalContract(hand: Card[], bid: number, isHand: boolean): Contract {
-  const plan = evaluate(hand);
+function chooseFinalContract(hand: Card[], bid: number, isHand: boolean, p: BotParams): Contract {
+  const plan = evaluate(hand, p);
   if (plan && gameValue(plan.contract, hand, isHand) >= bid) return plan.contract;
 
   const candidates: Contract[] = [
@@ -197,14 +230,14 @@ function chooseDiscards(hand: Card[], contract: Contract): [Card, Card] {
 
 // ---- Play ------------------------------------------------------------------
 
-function decidePlay(s: RoundState, seat: Seat): Action | null {
+function decidePlay(s: RoundState, seat: Seat, p: BotParams): Action | null {
   const legal = legalCards(s, seat);
   if (legal.length === 0) return null;
   if (legal.length === 1) return { type: 'playCard', seat, card: legal[0] };
-  return { type: 'playCard', seat, card: chooseCard(s, seat, legal) };
+  return { type: 'playCard', seat, card: chooseCard(s, seat, legal, p) };
 }
 
-function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
+function chooseCard(s: RoundState, seat: Seat, legal: Card[], p: BotParams): Card {
   const contract = s.contract!;
   const hand = s.hands[seat];
   const trick = s.trick;
@@ -212,7 +245,9 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
 
   // Null is its own world: no trumps, and the declarer must LOSE every trick.
   if (contract.type === 'null') {
-    if (trick.length === 0) return cheapest(legal, contract); // lead low
+    // On lead, usually keep low cards back to duck with later; some hands do
+    // better shedding the highest danger card first (nullLeadHigh).
+    if (trick.length === 0) return p.nullLeadHigh > 0.5 ? dearest(legal, contract) : cheapest(legal, contract);
     const tc = trick.map((t) => t.card);
     const ducks = legal.filter((card) => !wouldWin(tc, card, contract));
     if (amDeclarer) {
@@ -224,18 +259,20 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
     return ducks.length ? cheapest(ducks, contract) : cheapest(legal, contract);
   }
 
-  // Trumps still out in the opponents' hands (best-effort): all trumps minus the
-  // ones we hold and the ones already played (and, for the declarer, the skat).
-  const out = new Set<string>([...s.declarerTrickPoints, ...s.defenderTrickPoints, ...trick.map((t) => t.card)].map(cardId));
-  if (amDeclarer) for (const c of s.skat) out.add(cardId(c));
-  const mine = new Set(hand.map(cardId));
-  const outstanding = trumpsHighToLow(contract).filter((t) => !mine.has(cardId(t)) && !out.has(cardId(t)));
+  // Perfect memory of the public play record: who's void where, which cards are
+  // gone, which are now masters.
+  const mem = buildMemory(s, contract);
+
+  // Trumps still out in the opponents' hands: all trumps minus the ones we hold
+  // and the ones already played (and, for the declarer, the skat we discarded).
+  const outstanding = outstandingTrumps(hand, mem, contract, amDeclarer ? s.skat : []);
+  const opponents = ([0, 1, 2] as Seat[]).filter((x) => x !== seat);
 
   // ---- Leading a trick ----
   if (trick.length === 0) {
     if (amDeclarer) {
       const myTrumps = hand.filter((c) => isTrump(c, contract)).sort((a, b) => cardStrength(b, contract) - cardStrength(a, contract));
-      if (myTrumps.length > 0 && outstanding.length > 0) {
+      if (myTrumps.length > 0 && outstanding.length >= p.declarerPullTrumpsMinOut) {
         // Hold the master trump? Lead it. Otherwise lead a low trump (never the
         // trump ace or ten) to force the opponents to follow.
         if (cardStrength(myTrumps[0], contract) > cardStrength(outstanding[0], contract)) return myTrumps[0];
@@ -243,9 +280,9 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
         const pool = low.length ? low : myTrumps;
         return pool[pool.length - 1];
       }
-      return cashOrDump(hand, contract);
+      return cashOrDump(hand, contract, mem, outstanding.length, opponents, p);
     }
-    return leadAsDefender(s, seat, hand, contract);
+    return leadAsDefender(s, seat, hand, contract, mem, outstanding.length, p);
   }
 
   // ---- Following a trick ----
@@ -262,7 +299,7 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
       const cheap = cheapest(winners, contract);
       const trumpingIn = isTrump(cheap, contract) && led !== 'T';
       // Win cheaply, but don't waste a trump on a worthless side-suit trick.
-      if (!trumpingIn || trickValue >= 4 || isLast) return cheap;
+      if (!trumpingIn || trickValue >= p.trumpInMinValue || isLast) return cheap;
     }
     return lowCard(legal, contract);
   }
@@ -278,50 +315,80 @@ function chooseCard(s: RoundState, seat: Seat, legal: Card[]): Card {
   const suitOvertake = winners.filter((c) => led !== 'T' && !isTrump(c, contract));
   if (suitOvertake.length > 0) return cheapest(suitOvertake, contract);
   const trumpWin = winners.filter((c) => isTrump(c, contract));
-  if (trumpWin.length > 0 && (myTrumpCount >= 3 || trickValue >= 8)) return cheapest(trumpWin, contract);
+  if (trumpWin.length > 0 && (myTrumpCount >= p.defenderBreakInTrumps || trickValue >= p.defenderBreakInValue))
+    return cheapest(trumpWin, contract);
   return lowCard(legal, contract);
 }
 
-// Declarer with no trumps to pull: cash a side ace, else lead the lowest loser.
-function cashOrDump(hand: Card[], contract: Contract): Card {
+// Declarer with no trumps to pull: cash a guaranteed winner, else lead a loser.
+// "Guaranteed" = a side card that is the master of its suit (every higher card is
+// gone or in our hand) and, with declarerCashSafeOnly, one the defenders can't
+// ruff (nobody who is void in that suit still has a trump). Once the opponents'
+// trumps are gone, every master cashes; until then we hold a master back rather
+// than feed it to a ruff.
+function cashOrDump(
+  hand: Card[],
+  contract: Contract,
+  mem: PlayMemory,
+  oppTrumpsOut: number,
+  opponents: Seat[],
+  p: BotParams,
+): Card {
   const nonTrumps = hand.filter((c) => !isTrump(c, contract));
   if (nonTrumps.length === 0) return cheapest(hand, contract);
-  const ace = nonTrumps.find((c) => c.rank === 'A');
-  if (ace) return ace;
-  return lowCard(nonTrumps, contract);
+  const masters = nonTrumps.filter((c) => isCategoryMaster(c, hand, mem, contract));
+  const safe = masters.filter((c) => !someoneCanRuff(c.suit, opponents, mem, oppTrumpsOut));
+  const pool = p.declarerCashSafeOnly > 0.5 ? safe : masters;
+  if (pool.length) return highestPoints(pool); // bank the most valuable sure trick
+  return lowCard(nonTrumps, contract); // nothing safe to cash: shed a loser, keep winners
 }
 
 // Defender on lead. Two ideas drive the choice:
-//   - When our partner sits BEHIND the declarer (the declarer plays middlehand,
-//     our partner plays last), lead an honour up to them: a king or queen in a
-//     side suit whose ace or ten is still out. That forces the declarer to spend
-//     a top card or lets our partner win/schmier over them, while we keep our own
-//     ace back.
-//   - Otherwise cash: lead a side ace, or a ten that has become master (its ace
-//     is gone), and never open trumps for the declarer. Failing that, lead low.
-function leadAsDefender(s: RoundState, seat: Seat, hand: Card[], contract: Contract): Card {
+//   - Cash your guaranteed winners first: a side card that has become the master
+//     of its suit (every higher card gone or in hand) and that the declarer can't
+//     ruff. With perfect memory this covers far more than just aces: a king or ten
+//     promoted to master once the cards above it are gone. Bank these before the
+//     declarer can trump them.
+//   - With nothing to cash, and our partner sitting BEHIND the declarer (declarer
+//     middlehand, partner last), lead an honour up to them (a king/queen in a side
+//     suit whose ace or ten is still live) rather than a dead low card. It pressures
+//     the declarer and lets our partner win or schmier. Otherwise lead low; never
+//     open trumps for the declarer.
+function leadAsDefender(
+  s: RoundState,
+  seat: Seat,
+  hand: Card[],
+  contract: Contract,
+  mem: PlayMemory,
+  trumpsOut: number,
+  p: BotParams,
+): Card {
   const nonTrumps = hand.filter((c) => !isTrump(c, contract));
   if (nonTrumps.length === 0) return cheapest(hand, contract); // only trumps left
 
   const played = playedCards(s);
   const acePlayed = (suit: Suit) => played.some((c) => c.suit === suit && c.rank === 'A');
   const tenPlayed = (suit: Suit) => played.some((c) => c.suit === suit && c.rank === '10');
+  const declarer = s.declarer;
 
-  // Push your winners first: cash a side ace, or a ten that has become master
-  // (its ace is gone). Banking these points before the declarer can trump them is
-  // the bread-and-butter of defence.
-  const ace = nonTrumps.find((c) => c.rank === 'A');
-  if (ace) return ace;
-  const masterTen = nonTrumps.find((c) => c.rank === '10' && acePlayed(c.suit));
-  if (masterTen) return masterTen;
+  if (p.defenderCashMaster > 0.5) {
+    // Cash the most valuable master the declarer cannot ruff.
+    const safeMasters = nonTrumps.filter(
+      (c) =>
+        isCategoryMaster(c, hand, mem, contract) &&
+        (declarer === null || !someoneCanRuff(c.suit, [declarer], mem, trumpsOut)),
+    );
+    if (safeMasters.length) return highestPoints(safeMasters);
+  } else {
+    // Legacy cash: a side ace, or a ten whose ace is already gone.
+    const ace = nonTrumps.find((c) => c.rank === 'A');
+    if (ace) return ace;
+    const masterTen = nonTrumps.find((c) => c.rank === '10' && acePlayed(c.suit));
+    if (masterTen) return masterTen;
+  }
 
-  // No winner to cash. If our partner sits BEHIND the declarer (declarer plays
-  // middlehand, partner plays last), lead an honour up to them (a king or queen
-  // in a side suit whose ace or ten is still live) rather than a dead low card.
-  // It pressures the declarer's top cards and lets our partner win or schmier
-  // over them. Prefer the king over the queen.
-  const partnerBehindDeclarer = s.declarer !== null && s.declarer === ((seat + 1) % 3);
-  if (partnerBehindDeclarer) {
+  const partnerBehindDeclarer = declarer !== null && declarer === ((seat + 1) % 3);
+  if (partnerBehindDeclarer && p.defenderLeadHonour > 0.5) {
     const honours = nonTrumps.filter((c) => (c.rank === 'K' || c.rank === 'Q') && (!acePlayed(c.suit) || !tenPlayed(c.suit)));
     if (honours.length) return honours.sort((a, b) => cardStrength(b, contract) - cardStrength(a, contract))[0];
   }
