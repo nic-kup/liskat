@@ -19,6 +19,15 @@ export interface BotParams {
   suitTen: number; // a ten in a side suit
   suitThreshold: number;
 
+  // --- Suit HAND game: play the dealt 10 cards closed (decline the skat) when
+  //     (handTop*topRun + handTrumps*trumps) >= handThreshold. `topRun` is the
+  //     number of guaranteed top tricks in the SIDE suits: the unbroken run from
+  //     the top, an ace (1) or an ace and ten together (2), but never a ten
+  //     without its ace. Only strong, top-heavy hands should risk the closed game.
+  suitHandTop: number;
+  suitHandTrumps: number;
+  suitHandThreshold: number;
+
   // --- Grand: bid when (jack*jacks + ace*aces + clubJack*hasClubJack) >= threshold.
   grandJack: number;
   grandAce: number;
@@ -33,6 +42,13 @@ export interface BotParams {
   // get the contract uncontested), lower the suit/grand bidding bar by this much,
   // so a marginal hand we'd otherwise pass becomes worth a cheap, free game.
   passedPriorBonus: number;
+
+  // --- Speculative pickup: during the auction (only), lower the suit/grand bar by
+  // this much for EVERY hand, modelling the expected lift from the two skat cards
+  // we'll pick up. Lets a borderline hand bid on the chance the skat improves it;
+  // not applied when declaring (by then the real cards are known, so we bid those
+  // honestly). Stacks additively with passedPriorBonus.
+  skatBidBonus: number;
 
   // --- Play: declarer, suit/grand.
   declarerPullTrumpsMinOut: number; // keep leading trumps while this many or more are still out; below it, switch to cashing
@@ -65,14 +81,25 @@ export interface BotParams {
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 99 bots, tables of 3,
-// 48 deals each, Seeger-Fabian selection, ~80 generations, using perfect memory of
-// the public play record (bot-memory.ts). Head-to-head against the original
-// hand-tuned bot, this genome wins by ~+8 points/deal with a ~75% declarer win
-// rate vs ~61%, on deals the search never saw. The "break in with a trump"
-// decisions (declRuff*, defBreak*) are linear scores over the trick value, trumps
-// held, cards left, and side winners rather than flat thresholds; passedPriorBonus
-// relaxes the bid bar when both opponents have passed. To make the bot bid more
-// often at some cost in win rate, lower suitThreshold / grandThreshold.
+// 48 deals each, Seeger-Fabian selection, using perfect memory of the public play
+// record (bot-memory.ts). The "break in with a trump" decisions (declRuff*,
+// defBreak*) are linear scores over the trick value, trumps held, cards left, and
+// side winners rather than flat thresholds. passedPriorBonus relaxes the bid bar
+// when both opponents have passed.
+//
+// Two newer levers were added and then honestly A/B'd against this exact genome
+// over 40k held-out deals with seats rotated (experiments/ab-skat.ts):
+//   - suit HAND game (suitHand*): declining the skat to play the 10 cards closed
+//     when 1.25*topRun + 1.07*trumps >= 9.75 (e.g. seven trumps and two top side
+//     cards, or six and three). A small but real win: +0.2 pts/deal, win rate held
+//     at ~80%. Below ~9.5 it turns sharply negative (the bot plays loose hand games
+//     badly), so the threshold sits deliberately high.
+//   - skatBidBonus: relax the bid bar for the expected skat lift. Sound in theory,
+//     but every positive value LOST points here (the bot's play can't convert the
+//     extra marginal contracts), so it ships at 0 -- the lever exists for tuning,
+//     but speculative bidding is off until declarer play improves.
+// To make the bot bid more often at some cost in win rate, lower suitThreshold /
+// grandThreshold.
 export const DEFAULT_PARAMS: BotParams = {
   suitTrump: 1.127,
   suitSideAce: 0.758,
@@ -81,18 +108,22 @@ export const DEFAULT_PARAMS: BotParams = {
   suitTen: -0.108,
   suitThreshold: 7.193,
 
+  suitHandTop: 1.25,
+  suitHandTrumps: 1.07,
+  suitHandThreshold: 9.75,
+
   grandJack: 0.542,
   grandAce: 0.865,
   grandClubJack: 0.887,
   grandThreshold: 4.359,
 
-  // Evolution drove null bidding loose (it wins nulls against its weak-null-defence
-  // self-play peers), but this bot plays null poorly: against real defence those
-  // nulls are a money-loser. Held to rare, strong hands until null play improves.
+  // Null bidding is kept tight (this bot plays null poorly, so loose nulls are a
+  // money-loser against real defence): no ace and effectively nine+ low cards.
   nullHandMinLows: 8,
   nullMinLows: 9.185,
 
   passedPriorBonus: 0.102,
+  skatBidBonus: 0, // speculative bidding A/B'd negative; lever kept, tuned off
 
   declarerPullTrumpsMinOut: 1,
   declarerCashSafeOnly: 0,
@@ -123,6 +154,9 @@ export const PARAM_KEYS: (keyof BotParams)[] = [
   'suitVoid',
   'suitTen',
   'suitThreshold',
+  'suitHandTop',
+  'suitHandTrumps',
+  'suitHandThreshold',
   'grandJack',
   'grandAce',
   'grandClubJack',
@@ -130,6 +164,7 @@ export const PARAM_KEYS: (keyof BotParams)[] = [
   'nullHandMinLows',
   'nullMinLows',
   'passedPriorBonus',
+  'skatBidBonus',
   'declarerPullTrumpsMinOut',
   'declarerCashSafeOnly',
   'declRuffValue',

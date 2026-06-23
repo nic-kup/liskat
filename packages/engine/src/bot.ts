@@ -106,6 +106,17 @@ function evaluate(hand: Card[], p: BotParams, thresholdBonus = 0): GamePlan | nu
     if (score >= p.suitThreshold - thresholdBonus) {
       plans.push({ contract, value: gameValue(contract, hand, false), hand: false });
     }
+    // Suit HAND game: play the dealt 10 cards closed (decline the skat) when the
+    // hand has strong top-down control. Scored on guaranteed top tricks in the
+    // SIDE suits (the unbroken run from the top -- ace, or ace and ten -- never a
+    // bare ten) plus trump length. A hand game is worth +1 multiplier, so when it
+    // qualifies it outvalues the take-the-skat plan and wins the value sort below.
+    // The skat bonus is deliberately NOT applied here: a hand game forgoes the
+    // skat, so its expected lift is irrelevant to whether we should play closed.
+    const handScore = p.suitHandTop * sideTopRun(hand, suit) + p.suitHandTrumps * trumps;
+    if (handScore >= p.suitHandThreshold) {
+      plans.push({ contract, value: gameValue(contract, hand, true), hand: true });
+    }
   }
 
   {
@@ -140,6 +151,21 @@ function evaluate(hand: Card[], p: BotParams, thresholdBonus = 0): GamePlan | nu
   return plans[0];
 }
 
+// Guaranteed top tricks in the SIDE suits (everything but the trump suit): per
+// suit, the unbroken run from the top -- an ace (1), an ace and ten together (2),
+// but a ten without its ace counts for nothing (the ace still beats it). Gauges
+// whether a hand is solid enough to play a suit game closed (a hand game).
+function sideTopRun(hand: Card[], trumpSuit: Suit): number {
+  let total = 0;
+  for (const s of SUITS) {
+    if (s === trumpSuit) continue; // the trump suit's ace/ten are not top trumps
+    if (!hand.some((c) => c.suit === s && c.rank === 'A')) continue;
+    total += 1;
+    if (hand.some((c) => c.suit === s && c.rank === '10')) total += 1;
+  }
+  return total;
+}
+
 // ---- Bidding ---------------------------------------------------------------
 
 function decideBidding(s: RoundState, seat: Seat, p: BotParams): Action {
@@ -147,8 +173,11 @@ function decideBidding(s: RoundState, seat: Seat, p: BotParams): Action {
   // When both opponents have already passed, the contract is ours uncontested, so
   // relax the bidding bar by a learnable bonus and take a marginal hand we'd
   // otherwise fold.
+  // Always relax the bar by skatBidBonus (the expected lift from the skat we'll
+  // pick up); relax it further when both opponents have already passed and the
+  // contract is ours for free.
   const othersPassed = b.passed.filter((passed, i) => passed && i !== seat).length;
-  const bonus = othersPassed >= 2 ? p.passedPriorBonus : 0;
+  const bonus = p.skatBidBonus + (othersPassed >= 2 ? p.passedPriorBonus : 0);
   const ceiling = evaluate(s.hands[seat], p, bonus)?.value ?? 0;
 
   // Forehand may open the auction at a value when everyone else passed out.

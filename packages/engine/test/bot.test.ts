@@ -124,13 +124,15 @@ test('a powerhouse hand (four jacks, two aces) bids', () => {
 });
 
 test('bidding weights are tunable: a high suit threshold makes a marginal hand pass', () => {
-  // A borderline suit hand: five trumps (incl. two jacks) and a side ace. The
-  // default weights bid it; cranking the suit threshold up makes the same hand
+  // A pure suit hand: six spade trumps (only one jack, no club jack) and a single
+  // side ace -- too little jack/ace power for a grand even with the skat bonus, and
+  // too few top side cards for a hand game, so the suit threshold is the only lever.
+  // The default weights bid it; cranking the suit threshold up makes the same hand
   // pass, proving the params actually drive the decision.
   const r = createRound({
     hands: [
-      [c('CJ'), c('SJ'), c('SA'), c('SK'), c('S9'), c('S8'), c('HA'), c('H9'), c('D8'), c('D7')],
-      [c('HJ'), c('DJ'), c('CA'), c('CK'), c('C9'), c('S10'), c('SQ'), c('HK'), c('HQ'), c('DA')],
+      [c('SJ'), c('SA'), c('SK'), c('S10'), c('S9'), c('S8'), c('HA'), c('H9'), c('D8'), c('D7')],
+      [c('HJ'), c('DJ'), c('CA'), c('CK'), c('C9'), c('CJ'), c('SQ'), c('HK'), c('HQ'), c('DA')],
       [c('CQ'), c('C10'), c('C8'), c('C7'), c('S7'), c('H10'), c('H8'), c('H7'), c('DK'), c('DQ')],
     ],
     skat: [c('D10'), c('D9')],
@@ -161,9 +163,77 @@ test('passedPriorBonus: a marginal hand bids only once both opponents have passe
     ...DEFAULT_PARAMS,
     suitTrump: 1, suitSideAce: 0, suitJack: 0, suitVoid: 0, suitTen: 0, suitThreshold: 6,
     grandThreshold: 99, // disable grand so only the suit decision matters
+    skatBidBonus: 0, // isolate the passed-prior lever from the always-on skat bonus
+    suitHandThreshold: 99, // and keep this borderline hand out of the hand-game path
   };
   assert.equal(decideBotAction(r, 0, { ...base, passedPriorBonus: 0 })!.type, 'pass', 'no bonus: marginal hand folds');
   assert.equal(decideBotAction(r, 0, { ...base, passedPriorBonus: 2 })!.type, 'bid', 'bonus: takes the free game');
+});
+
+test('skatBidBonus: relaxing the bar during the auction turns a pass into a bid', () => {
+  // Forehand to open. A borderline hand scored on bare trump count: with the bar
+  // set just above the hand's score it folds, but a skat bonus that closes the
+  // gap makes it bid -- exactly the speculative-pickup behaviour.
+  const r = createRound({
+    hands: [
+      [c('CJ'), c('SJ'), c('SA'), c('SK'), c('S9'), c('HK'), c('HQ'), c('H9'), c('D8'), c('D7')],
+      [c('HJ'), c('DJ'), c('CA'), c('CK'), c('C9'), c('S10'), c('SQ'), c('S8'), c('HA'), c('DA')],
+      [c('CQ'), c('C10'), c('C8'), c('C7'), c('S7'), c('H10'), c('H8'), c('H7'), c('DK'), c('DQ')],
+    ],
+    skat: [c('D10'), c('D9')],
+  });
+  // Score the hand on trumps alone (4: two jacks + S A,K... actually SA,SK,S9 are
+  // trumps too) against a bar a touch above it; disable the other game types.
+  const base = {
+    ...DEFAULT_PARAMS,
+    suitTrump: 1, suitSideAce: 0, suitJack: 0, suitVoid: 0, suitTen: 0, suitThreshold: 6,
+    grandThreshold: 99, suitHandThreshold: 99, passedPriorBonus: 0,
+  };
+  assert.equal(decideBotAction(r, 0, { ...base, skatBidBonus: 0 })!.type, 'pass', 'no bonus: marginal hand folds');
+  assert.notEqual(decideBotAction(r, 0, { ...base, skatBidBonus: 2 })!.type, 'pass', 'bonus: bids on the skat lift');
+});
+
+test('suitHandThreshold drives the hand-vs-skat choice on a top-heavy hand', () => {
+  // A monster spade hand: five trumps (two jacks + three spades) and both red
+  // aces with their tens -- a topRun of 4 in the side suits. At the default
+  // threshold the bot declines the skat (plays a hand game); an unreachable
+  // threshold forces it back to taking the skat.
+  const hand = [c('CJ'), c('SJ'), c('SA'), c('S10'), c('SK'), c('HA'), c('H10'), c('DA'), c('D10'), c('CA')];
+  // Opponents that cannot enter the auction: no aces but only five low cards each
+  // (below the null bar) and too few trumps for a suit, so both pass and seat 0
+  // wins uncontested -- isolating the declarer's hand-vs-skat choice.
+  const mk = () =>
+    createRound({
+      hands: [
+        hand,
+        [c('HJ'), c('CK'), c('CQ'), c('C10'), c('SQ'), c('H9'), c('H8'), c('D9'), c('D8'), c('D7')],
+        [c('DJ'), c('HK'), c('HQ'), c('DK'), c('DQ'), c('C9'), c('C8'), c('C7'), c('S9'), c('S8')],
+      ],
+      skat: [c('S7'), c('H7')],
+    });
+  // Drive the auction so seat 0 wins it cheaply, then reach the declarer's choose.
+  // Grand is disabled so this ace-heavy hand commits to the spade game and the
+  // hand-vs-skat choice is the only thing under test.
+  function declareChoice(params: typeof DEFAULT_PARAMS) {
+    let r = mk();
+    let guard = 0;
+    while (r.phase === 'bidding') {
+      if (++guard > 50) throw new Error('auction stuck');
+      const seat =
+        r.bidding.awaiting === 'response' ? r.bidding.responder : r.bidding.asker;
+      r = applyAction(r, decideBotAction(r, seat as Seat, params)!);
+    }
+    assert.equal(r.phase, 'declaring');
+    assert.equal(r.declarer, 0);
+    return decideBotAction(r, 0, params)!;
+  }
+  const noGrand = { ...DEFAULT_PARAMS, grandThreshold: 99 };
+  assert.equal(declareChoice(noGrand).type, 'playHand', 'top-heavy hand plays closed');
+  assert.equal(
+    declareChoice({ ...noGrand, suitHandThreshold: 99 }).type,
+    'takeSkat',
+    'an unreachable hand threshold forces taking the skat',
+  );
 });
 
 test('a hand with no playable game passes the auction', () => {
