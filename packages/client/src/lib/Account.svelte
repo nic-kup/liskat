@@ -51,8 +51,8 @@
 {/if}
 
 {#if open}
-  <div class="overlay" role="presentation" onclick={close}>
-    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div class="overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <div class="tabs">
         <button class:active={mode === 'login'} onclick={() => ((mode = 'login'), (error = ''))}>Log in</button>
         <button class:active={mode === 'register'} onclick={() => ((mode = 'register'), (error = ''))}>Create account</button>

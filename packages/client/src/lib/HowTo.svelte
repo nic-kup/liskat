@@ -393,12 +393,6 @@
     font-size: 13px;
     padding-top: 7px;
   }
-  .calc-label small {
-    display: block;
-    font-size: 11px;
-    opacity: 0.65;
-    margin-top: 1px;
-  }
   .opts {
     display: flex;
     flex-wrap: wrap;

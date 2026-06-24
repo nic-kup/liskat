@@ -436,8 +436,13 @@
   let dragStartX = 0;
   let dragStartY = 0;
 
-  function canDragPlay(card: Card): boolean {
-    return $settings.dragToPlay && round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card);
+  // Dragging is available throughout the play phase (never during bidding /
+  // declaring): on your turn to play a legal card, off your turn to queue a
+  // pre-move by dropping any card onto the board.
+  function canDrag(card: Card): boolean {
+    if (!$settings.dragToPlay || round?.phase !== 'playing') return false;
+    if (isMyTurn()) return !pending && legalNow(card);
+    return true;
   }
   // The trick board is the drop target, with a generous margin so you don't have
   // to be pixel-perfect.
@@ -448,7 +453,7 @@
     return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
   }
   function onCardPointerDown(e: PointerEvent, card: Card) {
-    if (!canDragPlay(card)) return;
+    if (!canDrag(card)) return;
     dragCard = card;
     dragStartX = dragX = e.clientX;
     dragStartY = dragY = e.clientY;
@@ -466,10 +471,19 @@
   }
   function onDragUp() {
     const card = dragCard;
-    // A plain tap (no real movement) plays too; a drag plays only over the board.
-    const play = !!card && canDragPlay(card) && (!dragMoved || overBoard);
+    const wasDrag = dragMoved;
+    const onBoard = overBoard;
     endDrag();
-    if (play && card) onCardClick(card);
+    if (!card || round?.phase !== 'playing') return;
+    // Commit on a plain tap (no real movement) or on a drag released over the board.
+    if (wasDrag && !onBoard) return;
+    if (isMyTurn()) {
+      if (!pending && legalNow(card)) onCardClick(card); // play it now
+    } else if (wasDrag) {
+      premove = card; // dragged onto the board → set the pre-move
+    } else {
+      onCardClick(card); // tapped → toggle the pre-move
+    }
   }
   function endDrag() {
     dragCard = null;
@@ -819,20 +833,23 @@
             {@const playable = round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)}
             {@const premovable = round?.phase === 'playing' && !isMyTurn()}
             {@const isPremove = !!premove && cardId(premove) === cardId(card)}
-            {@const dragPlay = playable && $settings.dragToPlay}
+            {@const dragHere = $settings.dragToPlay && round?.phase === 'playing'}
+            <!-- The wrapper only carries the drag gesture; the actual control is
+                 the <button> inside CardView, so it needs no role of its own. -->
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="handcard"
               class:dragging={!!dragCard && cardId(dragCard) === cardId(card)}
               animate:flip={{ duration: 200, easing: cubicOut }}
               out:sendCard={{ key: cardId(card) }}
-              onpointerdown={dragPlay ? (e) => onCardPointerDown(e, card) : undefined}
+              onpointerdown={dragHere ? (e) => onCardPointerDown(e, card) : undefined}
             >
               <CardView
                 {card}
                 fill
                 selected={selected.includes(cardId(card))}
                 dim={isPremove || (round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card))}
-                onclick={selectable || (playable && !$settings.dragToPlay) || premovable ? () => onCardClick(card) : undefined}
+                onclick={selectable || ((playable || premovable) && !$settings.dragToPlay) ? () => onCardClick(card) : undefined}
               />
             </div>
           {/each}
@@ -856,8 +873,8 @@
     {#if $conn.error}<p class="error">{$conn.error}</p>{/if}
 
     {#if confirmLeave}
-      <div class="overlay" role="presentation" onclick={() => (confirmLeave = false)}>
-        <div class="confirm" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+      <div class="overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) confirmLeave = false; }}>
+        <div class="confirm" role="dialog" aria-modal="true" tabindex="-1">
           <h3>Leave the game?</h3>
           {#if willForfeit}<p class="warn">This is a ranked game. You will lose 50 rating if you leave.</p>{/if}
           <div class="confirm-actions">

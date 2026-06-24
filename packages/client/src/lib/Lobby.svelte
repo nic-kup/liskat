@@ -128,8 +128,8 @@
 {/if}
 
 {#if showCreate}
-  <div class="overlay" role="presentation" onclick={() => (showCreate = false)}>
-    <div class="modal" role="dialog" aria-modal="true" onclick={(e) => e.stopPropagation()}>
+  <div class="overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) showCreate = false; }}>
+    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <h2>Private table: choose a game type</h2>
       <label class="opt"><input type="checkbox" bind:checked={createTimed} /> Time control (10s per move + time bank)</label>
       <div class="grid">

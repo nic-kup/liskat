@@ -47,8 +47,8 @@
 <button class="navlink" onclick={() => (open = true)}>Send feedback</button>
 
 {#if open}
-  <div class="overlay" onclick={close} role="presentation">
-    <div class="modal" onclick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+  <div class="overlay" role="presentation" onclick={(e) => { if (e.target === e.currentTarget) close(); }}>
+    <div class="modal" role="dialog" aria-modal="true" tabindex="-1">
       <h2>Feedback</h2>
       {#if status === 'sent'}
         <p class="thanks">Thank you!</p>
