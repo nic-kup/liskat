@@ -267,6 +267,11 @@ function rebindTo(ws: WebSocket, target: Client): void {
 // open during the grace period after a drop). No-op if there's nothing to
 // resume; the socket keeps its freshly-minted identity.
 function resume(ws: WebSocket, playerId: string | null): void {
+  // Account identities ("u_…") may only re-attach through the authenticated
+  // `auth` (token) path — never an unauthenticated resume. The client always
+  // uses `auth` for a logged-in session, so this costs nothing legitimate; it
+  // closes a session-takeover hole should an account id ever leak.
+  if (playerId && playerId.startsWith('u_')) return;
   const provisional = clients.get(ws);
   const prior = playerId ? byId.get(playerId) : undefined;
   if (!prior || prior === provisional) return;
@@ -489,6 +494,16 @@ function makeLimiter(max: number, windowMs: number): (ip: string) => boolean {
 const feedbackAllowed = makeLimiter(5, 10 * 60 * 1000);
 const authAllowed = makeLimiter(30, 10 * 60 * 1000);
 
+// The real client IP, used as the rate-limit key. We trust Fly's `Fly-Client-IP`
+// (the verified peer) and fall back to the socket address for local/dev. We do
+// NOT use the left-most X-Forwarded-For entry: that value is supplied by the
+// client (Fly appends the true IP on the right), so trusting it would let an
+// attacker forge a fresh bucket per request and defeat the limiter entirely.
+function clientIp(req: IncomingMessage): string {
+  const fly = (req.headers['fly-client-ip'] as string)?.trim();
+  return fly || req.socket.remoteAddress || 'unknown';
+}
+
 function readBody(req: IncomingMessage, limit = 8000): Promise<string> {
   return new Promise((resolve, reject) => {
     let data = '';
@@ -502,7 +517,7 @@ function readBody(req: IncomingMessage, limit = 8000): Promise<string> {
 }
 
 async function handleFeedback(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const ip = clientIp(req);
   const json = (status: number, body: object) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -523,7 +538,7 @@ async function handleFeedback(req: IncomingMessage, res: ServerResponse): Promis
 }
 
 async function handleAuth(req: IncomingMessage, res: ServerResponse, action: 'register' | 'login' | 'logout'): Promise<void> {
-  const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() || req.socket.remoteAddress || 'unknown';
+  const ip = clientIp(req);
   const json = (status: number, body: object) => {
     res.writeHead(status, { 'content-type': 'application/json' });
     res.end(JSON.stringify(body));
@@ -685,7 +700,9 @@ async function handleStats(req: IncomingMessage, res: ServerResponse): Promise<v
     res.end(JSON.stringify(body));
   };
   if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled: set ADMIN_TOKEN' });
-  const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
+  // Header only — never accept the admin key via query string, which would leak
+  // it into proxy logs, browser history, and Referer headers.
+  const key = (req.headers['x-admin-key'] as string) || '';
   if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
   json(200, { ...gatherStats(), feedback: await readFeedback(100) });
 }
@@ -697,7 +714,9 @@ function handleTestGame(req: IncomingMessage, res: ServerResponse): void {
     res.end(JSON.stringify(body));
   };
   if (!ADMIN_TOKEN) return json(503, { error: 'monitoring disabled: set ADMIN_TOKEN' });
-  const key = (req.headers['x-admin-key'] as string) || new URL(req.url ?? '/', 'http://x').searchParams.get('key') || '';
+  // Header only — never accept the admin key via query string, which would leak
+  // it into proxy logs, browser history, and Referer headers.
+  const key = (req.headers['x-admin-key'] as string) || '';
   if (key !== ADMIN_TOKEN) return json(401, { error: 'unauthorized' });
   const table = createTestGame();
   json(200, { ok: true, tableId: table.id });
