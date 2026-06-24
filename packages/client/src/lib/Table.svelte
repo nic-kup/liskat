@@ -57,7 +57,10 @@
   const hand = $derived.by(() => {
     if (!round) return [];
     const cards = pending ? round.yourHand.filter((c) => cardId(c) !== cardId(pending!)) : round.yourHand;
-    const sorted = sortHand(cards, round.contract ?? undefined);
+    // While choosing a game, sort by the tentatively-picked contract so the hand
+    // reorders the instant you tap a suit / Grand / Null (trumps grouped left).
+    const sortBy = round.phase === 'declaring' && declContract ? declContract : (round.contract ?? undefined);
+    const sorted = sortHand(cards, sortBy);
     return sortRev ? [...sorted].reverse() : sorted;
   });
   // Drop the optimistic card once the server view catches up: either it confirms
@@ -583,6 +586,10 @@
                 <input type="checkbox" checked={$settings.dragToPlay} onchange={() => toggle('dragToPlay')} />
                 Drag cards to play
               </label>
+              <label class="setting">
+                <input type="checkbox" checked={!sortRev} onchange={toggleSort} />
+                Reverse card order
+              </label>
             </div>
           {/if}
         </div>
@@ -802,7 +809,6 @@
             </div>
           </div>
         {/if}
-        <button class="sortbtn" onclick={toggleSort} title="Reverse card order">⇄</button>
         <div class="mycard myrow">
           <div class="mc-left">
             <span class="score">{view.match?.scores[mySlot] ?? 0}</span>
@@ -1216,24 +1222,6 @@
   .annnote.warn {
     color: #ffb74d;
   }
-  .sortbtn {
-    position: absolute;
-    right: 8px;
-    top: 8px;
-    z-index: 2;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    color: var(--muted);
-    border-radius: 8px;
-    cursor: pointer;
-    font-size: 14px;
-    line-height: 1;
-    padding: 4px 8px;
-  }
-  .sortbtn:hover {
-    background: rgba(255, 255, 255, 0.16);
-    color: #f2f5f3;
-  }
   /* Anchored just above the seat box (its parent), hugging the right edge, so
      it tracks the board's height instead of a magic offset. */
   .lasttrick {
@@ -1331,12 +1319,16 @@
     width: 88px;
     aspect-ratio: 250 / 350;
     border-radius: 8%;
-    border: 2px dashed var(--c);
+    /* An outline (not a border) for the dashed frame: a border would shrink the
+       content box, so the card — sized by its own 250:350 ratio — would leave a
+       sliver of gap at the bottom. The outline sits on the edge and takes no
+       layout space, so the card fills the box exactly. */
+    outline: 2px dashed var(--c);
+    outline-offset: -2px;
     opacity: 0.35;
-    box-sizing: border-box;
   }
   .slot-card.filled {
-    border-color: transparent;
+    outline-color: transparent;
     opacity: 1;
   }
   /* Highlight the slot whose player is on lead. */
