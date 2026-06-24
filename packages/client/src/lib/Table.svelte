@@ -1295,6 +1295,10 @@
     row-gap: 10px;
     justify-content: center;
     align-items: start;
+    /* 10px buffer so the drag-over highlight sits clear of the cards; the
+       negative margin cancels it so the board's resting layout is unchanged. */
+    padding: 10px;
+    margin: -10px;
   }
   .slot {
     display: flex;
