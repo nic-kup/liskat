@@ -68,6 +68,34 @@
     const inHand = round?.yourHand?.some((c) => cardId(c) === cardId(pending!));
     if (!inHand || !isMyTurn()) pending = null;
   });
+  // A card the player queued to play before their turn ("pre-move"): shown greyed
+  // in the hand and, when there's room on the board, as a faint ghost in their
+  // trick slot. When the turn comes round it auto-plays after a short beat; if it
+  // is no longer a legal move by then it's silently dropped.
+  let premove = $state<Card | null>(null);
+  $effect(() => {
+    if (!premove) return;
+    const pm = premove;
+    if (round?.phase !== 'playing') {
+      premove = null;
+      return;
+    }
+    // The card left our hand somehow (shouldn't happen before it plays) — drop it.
+    if (!round.yourHand.some((c) => cardId(c) === cardId(pm))) {
+      premove = null;
+      return;
+    }
+    if (!isMyTurn() || pending) return; // still not our turn: keep waiting
+    const t = setTimeout(() => {
+      if (round?.phase === 'playing' && isMyTurn() && !pending && legalNow(pm)) {
+        pending = pm; // play it just like a normal click
+        playCard(pm);
+        playCardSound();
+      }
+      premove = null; // either it played, or it was illegal and is dropped
+    }, 100);
+    return () => clearTimeout(t);
+  });
   // The trick we actually render. Normally this mirrors the server's trick, but a
   // completed (3-card) trick is held on screen for at least MIN_TRICK_HOLD_MS so
   // it can't flash past when the server sweeps it, e.g. a trick a bot completes,
@@ -234,6 +262,7 @@
     annSchneider = annSchwarz = annOpen = false;
     selGame = '';
     selSuit = 'C';
+    premove = null;
   });
 
   // Keep announcements legal as they're toggled (mirrors the engine rules):
@@ -390,6 +419,9 @@
       pending = card; // show it played at once; the next server view confirms
       playCard(card);
       playCardSound();
+    } else if (round?.phase === 'playing' && !isMyTurn()) {
+      // Not our turn yet — queue this as a pre-move (tap again to cancel).
+      premove = premove && cardId(premove) === cardId(card) ? null : card;
     }
   }
 
@@ -718,11 +750,18 @@
               {@const id = identityForSlot(p.slot ?? 0)}
               {@const shown = p.slot != null ? displayTrick.find((x) => x.slot === p.slot) : undefined}
               {@const t = shown ?? (p.slot === mySlot && pending ? { slot: mySlot, card: pending } : undefined)}
-              <div class="slot {p.pos}" class:lead={!t && displayTrick.length === 0 && round.turnSlot === p.slot}>
+              <!-- Our pending pre-move, shown faintly — but only when the slot is
+                   free and the previous trick has cleared off the board. -->
+              {@const ghost = p.slot === mySlot && !t && premove && displayTrick.length < 3 ? premove : undefined}
+              <div class="slot {p.pos}" class:lead={!t && !ghost && displayTrick.length === 0 && round.turnSlot === p.slot}>
                 <div class="slot-card" class:filled={!!t} style="--c:{id.color}">
                   {#if t}
                     <div class="flycard" in:receiveCard={{ key: cardId(t.card) }}>
                       <CardView card={t.card} fill />
+                    </div>
+                  {:else if ghost}
+                    <div class="flycard premoveghost">
+                      <CardView card={ghost} fill />
                     </div>
                   {/if}
                 </div>
@@ -778,6 +817,8 @@
           {#each hand as card (cardId(card))}
             {@const selectable = round?.phase === 'declaring' && round.declareStep === 'discard'}
             {@const playable = round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)}
+            {@const premovable = round?.phase === 'playing' && !isMyTurn()}
+            {@const isPremove = !!premove && cardId(premove) === cardId(card)}
             {@const dragPlay = playable && $settings.dragToPlay}
             <div
               class="handcard"
@@ -790,8 +831,8 @@
                 {card}
                 fill
                 selected={selected.includes(cardId(card))}
-                dim={round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card)}
-                onclick={selectable || (playable && !$settings.dragToPlay) ? () => onCardClick(card) : undefined}
+                dim={isPremove || (round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card))}
+                onclick={selectable || (playable && !$settings.dragToPlay) || premovable ? () => onCardClick(card) : undefined}
               />
             </div>
           {/each}
@@ -1352,6 +1393,11 @@
     width: 100%;
     height: 100%;
   }
+  /* A queued pre-move sitting in our trick slot before it actually plays. */
+  .premoveghost {
+    opacity: 0.4;
+    filter: grayscale(0.7);
+  }
   /* The card being dragged: dim the original in the hand, no scrolling hijack. */
   .handcard {
     touch-action: none;
@@ -1515,10 +1561,11 @@
     color: #fff;
     font-weight: 600;
   }
-  /* Phone/tablet: lift the hand clear of the browser's bottom bar. */
+  /* Phone/tablet: lift the hand clear of the browser's bottom bar (a little —
+     the seat box otherwise floats too high). */
   @media (max-width: 980px) {
     .table {
-      padding-bottom: 7vh;
+      padding-bottom: 3.5vh;
     }
   }
   /* Phones: shrink the seat cards so two opponents fit side by side, and the
@@ -1563,11 +1610,13 @@
     .mc-right {
       gap: 5px;
     }
-    /* Cap the hand cards at their 7-card size so they stop growing as the hand
-       empties (≈ (hand width − gaps) / 7). They still shrink past 7 cards.
-       :global because the cards are a child component (own scope). */
-    .hand > :global(.card) {
-      max-width: 43px;
+    /* Cap the hand cards so they stop growing as the hand empties; without this
+       a short hand blew the cards up to their 92px base. They still shrink below
+       this when the hand is full. (Targets the .handcard wrapper, the direct
+       flex child — the .card lives one level deeper.) */
+    .handcard {
+      flex-basis: 50px;
+      max-width: 50px;
     }
   }
 </style>
