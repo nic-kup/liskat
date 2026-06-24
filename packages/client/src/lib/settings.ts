@@ -5,10 +5,11 @@ import { writable } from 'svelte/store';
 export interface Settings {
   sound: boolean; // play subtle sound effects (card play, etc.)
   dragToPlay: boolean; // drag a card to the middle to play it (vs click)
+  clickToPlay: boolean; // also allow a plain tap/click to play (only relevant when dragToPlay is on)
 }
 
 const KEY = 'liskat.settings';
-const DEFAULTS: Settings = { sound: true, dragToPlay: true };
+const DEFAULTS: Settings = { sound: true, dragToPlay: true, clickToPlay: true };
 
 function load(): Settings {
   try {

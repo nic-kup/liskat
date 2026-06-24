@@ -478,8 +478,10 @@
     const onBoard = overBoard;
     endDrag();
     if (!card || round?.phase !== 'playing') return;
-    // Commit on a plain tap (no real movement) or on a drag released over the board.
-    if (wasDrag && !onBoard) return;
+    // A drag commits only when released over the board. A plain tap commits only
+    // when click-to-play is enabled — with it off, the board is drag-only, so a
+    // stray tap can't play (or pre-move) a card.
+    if (wasDrag ? !onBoard : !$settings.clickToPlay) return;
     if (isMyTurn()) {
       if (!pending && legalNow(card)) onCardClick(card); // play it now
     } else if (wasDrag) {
@@ -586,6 +588,12 @@
                 <input type="checkbox" checked={$settings.dragToPlay} onchange={() => toggle('dragToPlay')} />
                 Drag cards to play
               </label>
+              {#if $settings.dragToPlay}
+                <label class="setting sub">
+                  <input type="checkbox" checked={$settings.clickToPlay} onchange={() => toggle('clickToPlay')} />
+                  Click to play
+                </label>
+              {/if}
               <label class="setting">
                 <input type="checkbox" checked={!sortRev} onchange={toggleSort} />
                 Reverse card order
@@ -1320,8 +1328,11 @@
     justify-self: center;
   }
   .slot-card {
-    width: 88px;
-    aspect-ratio: 250 / 350;
+    --sw: 88px;
+    width: var(--sw);
+    /* The card's true 250:350 height, minus 1px so the dashed box hugs the
+       card's bottom edge a hair more snugly. */
+    height: calc(var(--sw) * 350 / 250 - 1px);
     border-radius: 8%;
     /* An outline (not a border) for the dashed frame: a border would shrink the
        content box, so the card — sized by its own 250:350 ratio — would leave a
@@ -1470,6 +1481,10 @@
   .setting input {
     cursor: pointer;
   }
+  /* A sub-option that depends on the setting above it. */
+  .setting.sub {
+    margin-left: 22px;
+  }
   button {
     padding: 8px 12px;
     border-radius: 8px;
@@ -1588,7 +1603,7 @@
       gap: 8px;
     }
     .slot-card {
-      width: 58px;
+      --sw: 58px;
     }
     .trickboard {
       column-gap: 36px;
