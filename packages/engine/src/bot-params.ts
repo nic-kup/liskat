@@ -86,6 +86,14 @@ export interface BotParams {
   nullLeadLen: number;
   nullDiscardRank: number;
   nullDiscardLen: number;
+
+  // --- Experimental card-play model (bot-play-score.ts). When scorePlay > 0.5 the
+  // bot replaces the branchy play heuristic above with a linear per-card scoring
+  // model whose weights live in playW (four role-specific vectors). Default OFF, so
+  // production plays exactly as before until an evolved playW is validated and
+  // shipped. The bidding/declaring genes are unaffected either way.
+  scorePlay?: number;
+  playW?: import('./bot-play-score.ts').PlayWeights;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -155,6 +163,43 @@ export const DEFAULT_PARAMS: BotParams = {
   nullLeadLen: 0.3,
   nullDiscardRank: 1,
   nullDiscardLen: 0.3,
+
+  // Linear card-play model (bot-play-score.ts), ON. Each legal card is scored by a
+  // weighted feature vector and the best is played; suitDecl/suitDef are used for
+  // suit & grand play (declarer / defender). Evolved by experiments/evolve-play.ts
+  // with the bidding frozen. This is the iteration-3 genome (the feature set gained
+  // partner-can-ruff, point-count clinch/press, and graded trump-pull); validated
+  // head-to-head against the original heuristic play across four 30k-deal seeds at
+  // +2.0..+2.7 pts/deal, declarer win rate ~74% -> ~78%, and +0.4 over the prior
+  // (iteration-1) scored genome. Null play is NOT scored (see bot.ts decidePlay) --
+  // the bot never bids null, so the nullDecl/nullDef vectors below got no evolution
+  // signal and are inert; null routes to the hand-tuned heuristic instead. They are
+  // kept here as the literal evolved genome for the record / a future null arena.
+  scorePlay: 1,
+  playW: {
+    suitDecl: [
+      0.9330323715955103, -1.449637321811447, -4.721353658935217, 4.861533013011258, 1.160590449285917,
+      0.29267311004447777, 5.75820057287312, 1.261248115374525, 4.039248437620387, 0.7992909703715289,
+      -2.3398627726971344, 2.574329516393262, 0.9071803545510322, -2.1059053993074337, -1.5953321709521278,
+      -0.5371410630113218, 0.38952803977216, 3.644065804128857, -2.231852001448767, 1.1817431083772794,
+      -0.4486565275279636, 1.9665103104497486, -0.3090322884318595, 0.4257685364077681,
+    ],
+    suitDef: [
+      -0.010659711590045001, -1.0295946414535164, -3.869104043797315, -0.32708446808263525, 3.363910387206098,
+      1.219306703566128, -3.4838679984533867, 0.9283996445629197, 2.7942902740161535, 0.7299814635885865,
+      -1.6053380149512366, 4.925304010593967, 4.178700605697056, 1.4379756947312798, -0.8999475672022483,
+      4.2326868283327945, -0.003604340136893612, 3.8969985946331946, -2.3205920702020832, 0.5775815045946551,
+      0.23297448589392467, 1.1488110563928453, 0.38799706834907094, -0.4095952532231303,
+    ],
+    nullDecl: [
+      -1.3648679294110204, -0.2244717642912319, -0.05873313817944814, 0.31931018029820973, 3.113562216841169,
+      4.118556640958311, -1.8006491313180075,
+    ],
+    nullDef: [
+      -0.9047475709026015, -0.8140666776308066, 0.7965834869698251, 1.4662814466963203, 1.1340262510225498,
+      -1.9582468731985243, 0.14070423483527592,
+    ],
+  },
 };
 
 // The order/identity of the tunable genes, for the evolution harness. Keeping it

@@ -41,6 +41,7 @@ import { countMatadors, previewGameValue } from './scoring.ts';
 import { nextBid } from './bidding.ts';
 import { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 import { buildMemory, isCategoryMaster, outstandingTrumps, someoneCanRuff, type PlayMemory } from './bot-memory.ts';
+import { chooseCardScored } from './bot-play-score.ts';
 
 export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 
@@ -270,6 +271,14 @@ function decidePlay(s: RoundState, seat: Seat, p: BotParams): Action | null {
   const legal = legalCards(s, seat);
   if (legal.length === 0) return null;
   if (legal.length === 1) return { type: 'playCard', seat, card: legal[0] };
+  // Linear scoring model for suit/grand play (bot-play-score.ts). Null play stays
+  // on the hand-tuned heuristic below: the bot's bidding effectively never bids
+  // null, so the null scoring weights never get an evolution signal -- routing null
+  // through the proven heuristic avoids shipping untuned weights into the rare
+  // games where a human declares null and the bot defends.
+  if (p.scorePlay && p.scorePlay > 0.5 && p.playW && s.contract && s.contract.type !== 'null') {
+    return { type: 'playCard', seat, card: chooseCardScored(s, seat, legal, p.playW) };
+  }
   return { type: 'playCard', seat, card: chooseCard(s, seat, legal, p) };
 }
 

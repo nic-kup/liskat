@@ -321,7 +321,9 @@ test('defenderSafeLead steers a low lead away from a suit the declarer can ruff'
   const heartsRuffed = [[{ seat: 0, card: c('H7') }, { seat: 1, card: c('S8') }, { seat: 2, card: c('C8') }]];
   const pick = (safeLead: number) => {
     const s = { phase: 'playing', trickComplete: false, turn: 0, declarer: 2, contract: { type: 'suit', suit: 'C' }, hands: [[c('H8'), c('S9'), c('SQ')], [], []], trick: [], completedTricks: heartsRuffed, declarerTrickPoints: [], defenderTrickPoints: [] } as unknown as RoundState;
-    const a = decideBotAction(s, 0, { ...DEFAULT_PARAMS, defenderSafeLead: safeLead });
+    // scorePlay: 0 forces the heuristic play path this lever belongs to (the
+    // production default now plays suit/grand via the scored model, bot-play-score.ts).
+    const a = decideBotAction(s, 0, { ...DEFAULT_PARAMS, scorePlay: 0, defenderSafeLead: safeLead });
     assert.ok(a && a.type === 'playCard', 'expected a card play');
     return (a as { card: Card }).card;
   };
