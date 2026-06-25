@@ -457,6 +457,9 @@
   }
   function onCardPointerDown(e: PointerEvent, card: Card) {
     if (!canDrag(card)) return;
+    // Picking up a different card cancels any queued pre-move (a new one may be set
+    // on release if it's dropped onto the board).
+    if (premove && cardId(premove) !== cardId(card)) premove = null;
     dragCard = card;
     dragStartX = dragX = e.clientX;
     dragStartY = dragY = e.clientY;
@@ -790,7 +793,7 @@
                     </div>
                   {:else if ghost}
                     <div class="flycard premoveghost">
-                      <CardView card={ghost} fill />
+                      <CardView card={ghost} fill onclick={() => (premove = null)} />
                     </div>
                   {/if}
                 </div>

@@ -42,6 +42,7 @@ import { nextBid } from './bidding.ts';
 import { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 import { buildMemory, isCategoryMaster, outstandingTrumps, someoneCanRuff, type PlayMemory } from './bot-memory.ts';
 import { chooseCardScored } from './bot-play-score.ts';
+import { mcBidAction, mcDeclareAction } from './bot-mc.ts';
 
 export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 
@@ -50,11 +51,14 @@ export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 // evolution harness, A/B tests) swap in different weights; production uses the
 // tuned DEFAULT_PARAMS.
 export function decideBotAction(s: RoundState, seat: Seat, params: BotParams = DEFAULT_PARAMS): Action | null {
+  // When mcBidK > 0 the bot chooses its contract by Monte-Carlo simulation
+  // (bot-mc.ts) instead of the linear hand-strength formula; play is unchanged.
+  const mc = (params.mcBidK ?? 0) > 0;
   switch (s.phase) {
     case 'bidding':
-      return decideBidding(s, seat, params);
+      return mc ? mcBidAction(s, seat, params) : decideBidding(s, seat, params);
     case 'declaring':
-      return decideDeclaring(s, seat, params);
+      return mc ? mcDeclareAction(s, seat, params) : decideDeclaring(s, seat, params);
     case 'playing':
       return decidePlay(s, seat, params);
     default:

@@ -94,6 +94,14 @@ export interface BotParams {
   // shipped. The bidding/declaring genes are unaffected either way.
   scorePlay?: number;
   playW?: import('./bot-play-score.ts').PlayWeights;
+
+  // --- Monte-Carlo contract selection (bot-mc.ts). When > 0, the bot picks its
+  // game/bid by simulating each candidate contract this many times per determinized
+  // world and choosing the best expected points, instead of the linear bidding
+  // formula above (the suit*/grand*/null* thresholds, passedPriorBonus, skatBidBonus,
+  // suitHand* genes are then unused). Card play is unaffected. Higher = less noisy but
+  // slower (~tens of ms per decision at 32). 0/undefined keeps the formula bidder.
+  mcBidK?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -177,6 +185,13 @@ export const DEFAULT_PARAMS: BotParams = {
   // nullDecl is kept from the null-focused run (NOT from this general run, where null
   // is never bid and the weights drift); see bot.ts -- null DECLARER uses nullDecl,
   // null DEFENDER stays on the heuristic.
+  // Monte-Carlo contract selection (bot-mc.ts): ON. Picks the game by simulated EV
+  // rather than the linear formula above -- worth ~+5 pts/deal head-to-head vs the
+  // formula bidder (fixes the high-value-suit bias, finds profitable grands/nulls).
+  // The suit*/grand*/null bidding genes above are now inert in production (kept for
+  // the formula bidder, used when mcBidK is 0, e.g. the evolution harnesses).
+  mcBidK: 32,
+
   scorePlay: 1,
   playW: {
     suitDecl: [

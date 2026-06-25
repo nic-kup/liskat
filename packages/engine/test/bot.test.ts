@@ -7,6 +7,10 @@ import { decideBotAction } from '../src/bot.ts';
 import { DEFAULT_PARAMS } from '../src/bot-params.ts';
 import { cardsEqual } from '../src/cards.ts';
 
+// The production default now selects contracts by Monte-Carlo (mcBidK > 0). These
+// tests exercise the linear FORMULA bidder and its genes, so they pin mcBidK: 0.
+const HEUR = { ...DEFAULT_PARAMS, mcBidK: 0 };
+
 const c = (s: string): Card => ({ suit: s[0] as any, rank: s.slice(1) as any });
 
 // A small deterministic RNG so the simulation is reproducible.
@@ -43,7 +47,7 @@ function playOut(seed: number): RoundState {
     }
     const seat = activeSeat(r);
     assert.notEqual(seat, null, 'someone must be on turn');
-    const action = decideBotAction(r, seat as Seat);
+    const action = decideBotAction(r, seat as Seat, HEUR);
     assert.ok(action, 'bot must produce an action');
     r = applyAction(r, action!);
   }
@@ -100,7 +104,7 @@ test('every card a bot plays is legal', () => {
         continue;
       }
       const seat = activeSeat(r);
-      const action = decideBotAction(r, seat as Seat)!;
+      const action = decideBotAction(r, seat as Seat, HEUR)!;
       if (action.type === 'playCard') {
         const legal = legalCards(r, seat as Seat);
         assert.ok(legal.some((x) => cardsEqual(x, action.card)), `illegal card at seat ${seat}`);
@@ -119,7 +123,7 @@ test('a powerhouse hand (four jacks, two aces) bids', () => {
     ],
     skat: [c('HQ'), c('D9')],
   });
-  const action = decideBotAction(r, 0);
+  const action = decideBotAction(r, 0, HEUR);
   assert.ok(action.type === 'hold' || action.type === 'bid', 'a powerhouse hand should not pass at 18');
 });
 
@@ -137,9 +141,9 @@ test('bidding weights are tunable: a high suit threshold makes a marginal hand p
     ],
     skat: [c('D10'), c('D9')],
   });
-  const def = decideBotAction(r, 0, DEFAULT_PARAMS);
+  const def = decideBotAction(r, 0, HEUR);
   assert.ok(def && def.type !== 'pass', 'default weights should bid this hand');
-  const picky = decideBotAction(r, 0, { ...DEFAULT_PARAMS, suitThreshold: 99 });
+  const picky = decideBotAction(r, 0, { ...HEUR, suitThreshold: 99 });
   assert.equal(picky!.type, 'pass', 'an unreachable suit threshold should force a pass');
 });
 
@@ -160,7 +164,7 @@ test('passedPriorBonus: a marginal hand bids only once both opponents have passe
 
   // Weights where the hand scores exactly 5 against a suit bar of 6: a pass.
   const base = {
-    ...DEFAULT_PARAMS,
+    ...HEUR,
     suitTrump: 1, suitSideAce: 0, suitJack: 0, suitVoid: 0, suitTen: 0, suitThreshold: 6,
     grandThreshold: 99, // disable grand so only the suit decision matters
     skatBidBonus: 0, // isolate the passed-prior lever from the always-on skat bonus
@@ -185,7 +189,7 @@ test('skatBidBonus: relaxing the bar during the auction turns a pass into a bid'
   // Score the hand on trumps alone (4: two jacks + S A,K... actually SA,SK,S9 are
   // trumps too) against a bar a touch above it; disable the other game types.
   const base = {
-    ...DEFAULT_PARAMS,
+    ...HEUR,
     suitTrump: 1, suitSideAce: 0, suitJack: 0, suitVoid: 0, suitTen: 0, suitThreshold: 6,
     grandThreshold: 99, suitHandThreshold: 99, passedPriorBonus: 0,
   };
@@ -229,7 +233,7 @@ test('suitHandThreshold drives the hand-vs-skat choice on a top-heavy hand', () 
   }
   // Enable hand games explicitly (the shipped defaults keep them effectively off),
   // and disable grand so the spade game is the only thing in play.
-  const handOn = { ...DEFAULT_PARAMS, grandThreshold: 99, suitHandTop: 1.25, suitHandTrumps: 1.07, suitHandThreshold: 9.75 };
+  const handOn = { ...HEUR, grandThreshold: 99, suitHandTop: 1.25, suitHandTrumps: 1.07, suitHandThreshold: 9.75 };
   assert.equal(declareChoice(handOn).type, 'playHand', 'top-heavy hand plays closed');
   assert.equal(
     declareChoice({ ...handOn, suitHandThreshold: 99 }).type,
@@ -248,8 +252,30 @@ test('a hand with no playable game passes the auction', () => {
     ],
     skat: [c('D8'), c('D9')],
   });
-  const action = decideBotAction(r, 0);
+  const action = decideBotAction(r, 0, HEUR);
   assert.equal(action.type, 'pass');
+});
+
+test('MC bidder (mcBidK > 0) plays full deals legally and declares games', () => {
+  const MC = { ...DEFAULT_PARAMS, mcBidK: 8 }; // small K for test speed
+  let declared = 0;
+  for (let seed = 1; seed <= 12; seed++) {
+    let r = createRound(deal(lcg(seed)));
+    let guard = 0;
+    while (r.phase !== 'finished') {
+      if (++guard > 500) throw new Error('round did not terminate');
+      if (r.phase === 'playing' && r.trickComplete) { r = applyAction(r, { type: 'collect' }); continue; }
+      const seat = activeSeat(r);
+      const action = decideBotAction(r, seat as Seat, MC)!;
+      if (action.type === 'playCard') {
+        const legal = legalCards(r, seat as Seat);
+        assert.ok(legal.some((x) => cardsEqual(x, action.card)), `MC bot played an illegal card at seat ${seat}`);
+      }
+      r = applyAction(r, action); // also asserts the MC declaration never overbids (applyAction would throw)
+    }
+    if (!r.passedIn && r.result) declared++;
+  }
+  assert.ok(declared > 0, 'the MC bidder should declare at least some games across 12 deals');
 });
 
 test('null declarer play: lead low from a short suit, duck high, discard high when void', () => {
