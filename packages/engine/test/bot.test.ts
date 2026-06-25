@@ -256,8 +256,10 @@ test('null declarer play: lead low from a short suit, duck high, discard high wh
   // Minimal playing-phase null states (seat 0 is the declarer on turn).
   const playing = (hand: Card[], trick: { seat: number; card: Card }[]) =>
     ({ phase: 'playing', trickComplete: false, turn: 0, declarer: 0, contract: { type: 'null' }, hands: [hand, [], []], trick }) as unknown as RoundState;
+  // scorePlay: 0 forces the heuristic null path these assertions describe (the
+  // production default now plays null-declarer via the scored model, bot-play-score.ts).
   const played = (s: RoundState) => {
-    const a = decideBotAction(s, 0);
+    const a = decideBotAction(s, 0, { ...DEFAULT_PARAMS, scorePlay: 0 });
     assert.ok(a && a.type === 'playCard', 'expected a card play');
     return (a as { card: Card }).card;
   };
@@ -289,8 +291,10 @@ test('null defender lead: avoid declarer voids, lead lowest, else void our short
   // void by its failure to follow.
   const defLead = (hand: Card[], history: { seat: number; card: Card }[][], declarer: number) =>
     ({ phase: 'playing', trickComplete: false, turn: 0, declarer, contract: { type: 'null' }, hands: [hand, [], []], trick: [], completedTricks: history }) as unknown as RoundState;
+  // scorePlay: 0 forces the heuristic null-defender path these assertions describe
+  // (production now plays null defence via the scored model, bot-play-score.ts).
   const play = (s: RoundState) => {
-    const a = decideBotAction(s, 0);
+    const a = decideBotAction(s, 0, { ...DEFAULT_PARAMS, scorePlay: 0 });
     assert.ok(a && a.type === 'playCard', 'expected a card play');
     return (a as { card: Card }).card;
   };

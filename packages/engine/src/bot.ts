@@ -271,12 +271,11 @@ function decidePlay(s: RoundState, seat: Seat, p: BotParams): Action | null {
   const legal = legalCards(s, seat);
   if (legal.length === 0) return null;
   if (legal.length === 1) return { type: 'playCard', seat, card: legal[0] };
-  // Linear scoring model for suit/grand play (bot-play-score.ts). Null play stays
-  // on the hand-tuned heuristic below: the bot's bidding effectively never bids
-  // null, so the null scoring weights never get an evolution signal -- routing null
-  // through the proven heuristic avoids shipping untuned weights into the rare
-  // games where a human declares null and the bot defends.
-  if (p.scorePlay && p.scorePlay > 0.5 && p.playW && s.contract && s.contract.type !== 'null') {
+  // Linear scoring model (bot-play-score.ts) handles ALL play: suit/grand, plus null
+  // declarer (nullDecl) and null defender (nullDef), both tuned by dedicated forced-
+  // null arenas (experiments/evolve-null.ts, evolve-nulldef.ts). The hand-tuned
+  // heuristic (chooseCard) remains only as the scorePlay-off fallback.
+  if (p.scorePlay && p.scorePlay > 0.5 && p.playW) {
     return { type: 'playCard', seat, card: chooseCardScored(s, seat, legal, p.playW) };
   }
   return { type: 'playCard', seat, card: chooseCard(s, seat, legal, p) };

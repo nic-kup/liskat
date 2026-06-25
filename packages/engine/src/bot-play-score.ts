@@ -68,6 +68,12 @@ export const SUIT_FEATURES = [
   'win_clinch', // following+win: taking this trick reaches my side's point goal (declarer 61 / defender 60)
   'win_press', // following+win: my side already past its goal -> extra captured points (declarer schneider press)
   'lead_trump_pull_graded', // leading: a trump, scaled by how many opponent trumps are still out (graded pull)
+  // --- split features (iteration 4): lead_len's weight was huge and opposite-signed
+  //     by role, conflating long-in-trump with long-in-a-side-suit; win_ruff was huge
+  //     for defenders. Split each by an interaction so the model can value them apart.
+  'lead_len_trump', // leading: trump-suit length (lead long from trumps -> pull power)
+  'lead_len_side', // leading: side-suit length (lead long from a side suit -> establish it)
+  'win_ruff_last', // following+win: ruffing a side lead AS the last player (safe, no over-ruff)
 ] as const;
 
 export const NULL_FEATURES = [
@@ -236,6 +242,8 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     f[7] = !trump && waitingCanRuff(c.suit, ctx) ? 1 : 0;
     f[20] = !trump && partnerCanRuff(c.suit, ctx) ? 1 : 0; // lead into my partner's ruff
     f[23] = trump ? Math.min(ctx.oppTrumpsOut, 6) / 6 : 0; // graded trump pull
+    f[24] = trump ? len : 0; // split of lead_len: trump-suit length
+    f[25] = !trump ? len : 0; // split of lead_len: side-suit length
   } else {
     f[8] = win;
     f[9] = win * capt01;
@@ -251,6 +259,7 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     f[19] = lose * ruffSide * (led !== null && waitingCanRuff(led as string, ctx) ? 1 : 0);
     f[21] = win * clinch; // taking this trick reaches my side's point goal
     f[22] = win * capt01 * pastGoal; // already safe -> press for more points (schneider)
+    f[26] = win * trump * ruffSide * (isLast ? 1 : 0); // split of win_ruff: ruff as the last player
   }
   return f;
 }

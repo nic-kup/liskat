@@ -130,10 +130,12 @@ export const DEFAULT_PARAMS: BotParams = {
   grandClubJack: 0.834,
   grandThreshold: 4.362,
 
-  // Null bidding is kept tight (this bot plays null poorly, so loose nulls are a
-  // money-loser against real defence): no ace and effectively ten low cards.
-  nullHandMinLows: 9.777,
-  nullMinLows: 9.159,
+  // Null bidding: no ace and >= 8 low cards. Lowered from ~9.16/9.78 once the scored
+  // null-declarer play (playW.nullDecl) made null biddable: out-of-sample, null wins
+  // ~74% at 8 final lows (well above the ~57% break-even), and enabling it nets
+  // +0.03..+0.05 pts/deal across seeds while the bot now actually plays some nulls.
+  nullHandMinLows: 8,
+  nullMinLows: 8,
 
   passedPriorBonus: 0.459,
   skatBidBonus: 0.051, // negligible; speculative bidding stays effectively off
@@ -165,39 +167,49 @@ export const DEFAULT_PARAMS: BotParams = {
   nullDiscardLen: 0.3,
 
   // Linear card-play model (bot-play-score.ts), ON. Each legal card is scored by a
-  // weighted feature vector and the best is played; suitDecl/suitDef are used for
-  // suit & grand play (declarer / defender). Evolved by experiments/evolve-play.ts
-  // with the bidding frozen. This is the iteration-3 genome (the feature set gained
-  // partner-can-ruff, point-count clinch/press, and graded trump-pull); validated
-  // head-to-head against the original heuristic play across four 30k-deal seeds at
-  // +2.0..+2.7 pts/deal, declarer win rate ~74% -> ~78%, and +0.4 over the prior
-  // (iteration-1) scored genome. Null play is NOT scored (see bot.ts decidePlay) --
-  // the bot never bids null, so the nullDecl/nullDef vectors below got no evolution
-  // signal and are inert; null routes to the hand-tuned heuristic instead. They are
-  // kept here as the literal evolved genome for the record / a future null arena.
+  // weighted feature vector and the best is played; suitDecl/suitDef cover suit &
+  // grand play (declarer / defender). Evolved by experiments/evolve-play.ts with the
+  // bidding frozen. This is the ITERATION-4 genome: the feature set added the split
+  // features lead_len_trump/lead_len_side (the overloaded lead_len, validated by the
+  // defender split -3.48 -> trump -1.86 / side +1.72) and win_ruff_last. Validated
+  // head-to-head vs the iteration-3 genome across five 30k-deal seeds at +0.31 pts/deal
+  // avg (all positive), on top of iteration-3's +2.4 over the original heuristic.
+  // nullDecl is kept from the null-focused run (NOT from this general run, where null
+  // is never bid and the weights drift); see bot.ts -- null DECLARER uses nullDecl,
+  // null DEFENDER stays on the heuristic.
   scorePlay: 1,
   playW: {
     suitDecl: [
-      0.9330323715955103, -1.449637321811447, -4.721353658935217, 4.861533013011258, 1.160590449285917,
-      0.29267311004447777, 5.75820057287312, 1.261248115374525, 4.039248437620387, 0.7992909703715289,
-      -2.3398627726971344, 2.574329516393262, 0.9071803545510322, -2.1059053993074337, -1.5953321709521278,
-      -0.5371410630113218, 0.38952803977216, 3.644065804128857, -2.231852001448767, 1.1817431083772794,
-      -0.4486565275279636, 1.9665103104497486, -0.3090322884318595, 0.4257685364077681,
+      1.3085431951619018, -1.9267888661997805, -4.885637635440492, 5.312465699647187, 1.4367640819543472,
+      0.8963894884408642, 4.562916374847021, 1.1217291366460285, 0.1001914478308864, 1.6548289662395663,
+      -2.760466448837775, 1.1665052154573232, 0.2756020139619183, 1.621428257744532, -0.6725496083047564,
+      -1.8916470868020616, -0.6073489905757306, 3.7950285287444707, -3.923666942587574, 0.549019545222805,
+      -0.45479158368488676, 2.771156117377572, -0.9929575758013224, 0.5189654964774506, -0.29311621105731567,
+      0.4514291791053511, -0.5483765327972963,
     ],
     suitDef: [
-      -0.010659711590045001, -1.0295946414535164, -3.869104043797315, -0.32708446808263525, 3.363910387206098,
-      1.219306703566128, -3.4838679984533867, 0.9283996445629197, 2.7942902740161535, 0.7299814635885865,
-      -1.6053380149512366, 4.925304010593967, 4.178700605697056, 1.4379756947312798, -0.8999475672022483,
-      4.2326868283327945, -0.003604340136893612, 3.8969985946331946, -2.3205920702020832, 0.5775815045946551,
-      0.23297448589392467, 1.1488110563928453, 0.38799706834907094, -0.4095952532231303,
+      0.487751375761592, -2.9290587588937766, -4.8431123140413375, 0.04580922085343578, 3.7348629054369646,
+      1.758428332905364, -0.3935328306808904, 2.3560827066620282, 3.4960643644561373, 1.72923036809147,
+      -2.5211808784652874, -0.7608597908083929, 3.4518967126228, 2.1801901720435444, -2.1935212901443575,
+      4.296792424164944, -1.873368219179978, 1.763555985757881, -3.1689900781268867, 1.0726161299627845,
+      0.32155471069471164, 2.8533616605635284, 0.19168482001074622, -0.28743961754104697, -1.8609522886516419,
+      1.7167489779699594, -3.15040543413941,
     ],
+    // Tuned by experiments/evolve-null.ts (forced-null arena): 37.6% forced-null win
+    // rate vs the heuristic's 30.5% out-of-sample, and better in every hand-strength
+    // bucket. nfollow_win is now strongly negative (never win a trick). Used for null
+    // DECLARER play; null DEFENDER still routes to the heuristic (see bot.ts).
     nullDecl: [
-      -1.3648679294110204, -0.2244717642912319, -0.05873313817944814, 0.31931018029820973, 3.113562216841169,
-      4.118556640958311, -1.8006491313180075,
+      -1.6709907837212086, 3.954270238056779, -0.4434547573328018, -3.641405599191785, -0.7664509229362011,
+      1.1660434026271105, -1.7166983261704445,
     ],
+    // Tuned by experiments/evolve-nulldef.ts: sets a strong scored null declarer ~72%
+    // vs the heuristic's ~62% (out-of-sample, two fresh seeds). It learned the core
+    // null-defence rule -- nlead_declvoid strongly negative (never lead a suit the
+    // declarer is void in) -- plus lead-from-short-suits. Used for null DEFENDER play.
     nullDef: [
-      -0.9047475709026015, -0.8140666776308066, 0.7965834869698251, 1.4662814466963203, 1.1340262510225498,
-      -1.9582468731985243, 0.14070423483527592,
+      -0.15261148330688679, -4.254484866025763, -3.534733506438587, -2.6070902547099566, 3.369348128250137,
+      -0.9696044106802282, -2.8794630630618467,
     ],
   },
 };
