@@ -17,6 +17,7 @@ import { createRound, applyAction, legalCards, type RoundState, type Action } fr
 import type { Deal } from './deal.ts';
 import { cardId, cardPoints } from './cards.ts';
 import { isTrump } from './ordering.ts';
+import { chooseDiscardScored } from './bot-play-score.ts';
 import { countMatadors, previewGameValue } from './scoring.ts';
 import { nextBid } from './bidding.ts';
 import { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
@@ -159,7 +160,10 @@ export function mcDeclareAction(s: RoundState, seat: Seat, p: BotParams): Action
     }
     if (bestCover) contract = bestCover.c;
   }
-  if (s.declareStep === 'discard') return { type: 'discard', seat, cards: discardFor(hand, contract) };
+  if (s.declareStep === 'discard') {
+    const scored = p.scorePlay && p.scorePlay > 0.5 && p.playW ? chooseDiscardScored(hand, contract, p.playW) : null;
+    return { type: 'discard', seat, cards: scored ?? discardFor(hand, contract) };
+  }
   if (s.declareStep === 'contract') return { type: 'declareContract', seat, contract };
   return null;
 }

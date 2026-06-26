@@ -226,6 +226,23 @@ export const DEFAULT_PARAMS: BotParams = {
       -0.15261148330688679, -4.254484866025763, -3.534733506438587, -2.6070902547099566, 3.369348128250137,
       -0.9696044106802282, -2.8794630630618467,
     ],
+    // Learnable skat discard (bot-play-score.ts DISC_*_FEATURES), trained on the
+    // real-game arena (experiments/train-realgame.ts) and validated by a variance-
+    // reduced paired MC-bidder A/B vs the old heuristic discard: +5.3 pts/deal across
+    // three seeds (4242/9999/31337: +5.48/+4.69/+5.83), the gain entirely in the
+    // DECLARER role (+~24 pts/declared-game; defenders never discard, so their play is
+    // byte-identical to before). The old heuristic buried the lowest-POINT cards and
+    // so KEPT bare tens in hand where defenders' aces caught them; the learned policy
+    // never buries trumps (-4.49) or aces (-4.88), buries a bare ten to bank the 10
+    // safely (+1.04), and creates a ruffing void (+1.23) -- textbook druecken.
+    // discSuit features: [d_pts, d_trump, d_ace, d_ten_bare, d_void, d_str].
+    discSuit: [
+      -0.25071009279202877, -4.492415500608839, -4.880599052216065, 1.040416379162799, 1.2283957985959226,
+      0.4422676744831777,
+    ],
+    // discNull features: [dn_rank, dn_ace, dn_void, dn_low]. Bury the dangerous high
+    // cards/aces and make voids; keep the low cards back for safe ducking.
+    discNull: [2.8589344241275474, 1.3770521965608933, 1.8258151995518515, -1.5861749456878516],
   },
 };
 

@@ -41,7 +41,7 @@ import { countMatadors, previewGameValue } from './scoring.ts';
 import { nextBid } from './bidding.ts';
 import { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 import { buildMemory, isCategoryMaster, outstandingTrumps, someoneCanRuff, type PlayMemory } from './bot-memory.ts';
-import { chooseCardScored } from './bot-play-score.ts';
+import { chooseCardScored, chooseDiscardScored } from './bot-play-score.ts';
 import { mcBidAction, mcDeclareAction } from './bot-mc.ts';
 
 export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
@@ -212,7 +212,9 @@ function decideDeclaring(s: RoundState, seat: Seat, p: BotParams): Action | null
 
   if (s.declareStep === 'discard') {
     const contract = chooseFinalContract(hand, s.bid, !s.tookSkat, p);
-    return { type: 'discard', seat, cards: chooseDiscards(hand, contract) };
+    // Learnable discard when weights are present (bot-play-score.ts); else the heuristic.
+    const scored = p.scorePlay && p.scorePlay > 0.5 && p.playW ? chooseDiscardScored(hand, contract, p.playW) : null;
+    return { type: 'discard', seat, cards: scored ?? chooseDiscards(hand, contract) };
   }
 
   if (s.declareStep === 'contract') {

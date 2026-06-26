@@ -30,13 +30,28 @@ import type { RoundState } from './round.ts';
 
 // ---- the learnable weights -------------------------------------------------
 
-// Four weight vectors, one per play role. suit* are length SUIT_FEATURES.length,
+// Weight vectors, one per play role. suit*/grand* are length SUIT_FEATURES.length,
 // null* are length NULL_FEATURES.length. Carried inside BotParams as playW.
+//
+// grandDecl/grandDef are OPTIONAL. Grand and suit share an identical feature/trump
+// structure, so historically both routed through suitDecl/suitDef. They are not the
+// same GAME though (grand: only jacks are trump, side suits are long; the right
+// trump-pull / cashing tradeoffs differ), so grand can carry its own vectors. When
+// a grand vector is absent the code falls back to the suit one -- i.e. omitting them
+// reproduces the old shared-weights behaviour exactly.
 export interface PlayWeights {
   suitDecl: number[];
   suitDef: number[];
+  grandDecl?: number[];
+  grandDef?: number[];
   nullDecl: number[];
   nullDef: number[];
+  // Learnable skat discard (optional). The two buried cards become the skat, which
+  // COUNTS for the declarer, so the discard trades banked points, trump economy, and
+  // creating a ruffing void. Scored over candidate PAIRS (see chooseDiscardScored).
+  // Absent -> the bot falls back to the hand-written discard heuristic (bot.ts).
+  discSuit?: number[]; // suit & grand discard (DISC_SUIT_FEATURES)
+  discNull?: number[]; // null discard (DISC_NULL_FEATURES)
 }
 
 // Feature names double as documentation and fix the vector order. SUIT_FEATURES
@@ -74,6 +89,12 @@ export const SUIT_FEATURES = [
   'lead_len_trump', // leading: trump-suit length (lead long from trumps -> pull power)
   'lead_len_side', // leading: side-suit length (lead long from a side suit -> establish it)
   'win_ruff_last', // following+win: ruffing a side lead AS the last player (safe, no over-ruff)
+  // --- iteration 5: the schneider/schwarz LINES (previously only the 61/60 game goal
+  //     was modelled) plus tempo and ten-protection. ---
+  'def_secure30', // following+win (defender): this trick lifts the defence to 30 -> denies the declarer the schneider multiplier (cuts game value even on a lost defence)
+  'decl_press90', // following+win (declarer): already past 61, this trick crosses 90 -> schneiders the defenders (raises game value)
+  'win_late', // following+win: scaled by how late in the hand it is (cash winners when fewer tricks remain)
+  'ten_protect', // following+lose: surrendering a TEN (10 pts, beaten only by the ace) to an opponent -- sharper than generic lose_pts
 ] as const;
 
 export const NULL_FEATURES = [
@@ -86,8 +107,26 @@ export const NULL_FEATURES = [
   'nfollow_voidlen', // following+void-in-led: suit length of the card we discard
 ] as const;
 
+// Discard is scored over candidate PAIRS of cards to bury (see chooseDiscardScored).
+export const DISC_SUIT_FEATURES = [
+  'd_pts', // total card points buried (skat counts for the declarer -> banks them safely)
+  'd_trump', // trumps in the pair (almost never bury a trump)
+  'd_ace', // aces in the pair (keep aces -> winners/guards)
+  'd_ten_bare', // tens whose ace we do NOT hold (bury to bank the 10 safely)
+  'd_void', // side-suit voids the pair CREATES (enables ruffing) 0..2
+  'd_str', // total trick-strength buried (keep strong cards -> bury weak ones)
+] as const;
+export const DISC_NULL_FEATURES = [
+  'dn_rank', // total null-rank buried (bury the dangerous high cards)
+  'dn_ace', // aces buried (aces are death in null)
+  'dn_void', // side-suit voids created (a void can never be forced to win)
+  'dn_low', // low cards (7/8/9) buried (keep these -> safe ducks)
+] as const;
+
 export const SUIT_NF = SUIT_FEATURES.length;
 export const NULL_NF = NULL_FEATURES.length;
+export const DISC_SUIT_NF = DISC_SUIT_FEATURES.length;
+export const DISC_NULL_NF = DISC_NULL_FEATURES.length;
 
 // ---- per-card scalar helpers -----------------------------------------------
 
@@ -143,6 +182,7 @@ interface Ctx {
   oppWinning: boolean; // the current trick winner is an opponent
   myBanked: number; // points my side has already secured this deal
   myGoal: number; // points my side needs to win the card play (declarer 61, defenders 60)
+  trickCount: number; // tricks already collected this deal (0..9), for endgame/tempo scaling
 }
 
 function buildCtx(s: RoundState, seat: Seat): Ctx {
@@ -192,7 +232,7 @@ function buildCtx(s: RoundState, seat: Seat): Ctx {
     contract, hand, mem, trickCards, empty, isLast, led,
     trickValue: trickCards.reduce((a, c) => a + cardPoints(c), 0),
     iAmDeclarer, declarer: s.declarer, waitingOpps, waitingPartners, oppTrumpsOut, friendWinning, oppWinning,
-    myBanked, myGoal,
+    myBanked, myGoal, trickCount: s.trickCount,
   };
 }
 
@@ -260,6 +300,12 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     f[21] = win * clinch; // taking this trick reaches my side's point goal
     f[22] = win * capt01 * pastGoal; // already safe -> press for more points (schneider)
     f[26] = win * trump * ruffSide * (isLast ? 1 : 0); // split of win_ruff: ruff as the last player
+    // iteration-5 features (all per-candidate; gated so the irrelevant role contributes 0).
+    const isTen = c.rank === '10' ? 1 : 0;
+    f[27] = !ctx.iAmDeclarer && ctx.myBanked < 30 && ctx.myBanked + captPoints >= 30 ? win : 0; // defender: secure 30 (anti-schneider)
+    f[28] = ctx.iAmDeclarer && ctx.myBanked < 90 && ctx.myBanked + captPoints >= 90 ? win : 0; // declarer: cross 90 (schneider press)
+    f[29] = win * (ctx.trickCount / 10); // endgame urgency: a win is worth more late
+    f[30] = lose * isTen * (ctx.oppWinning ? 1 : 0); // protect tens: don't surrender a 10 to an opponent
   }
   return f;
 }
@@ -303,7 +349,11 @@ function dot(f: number[], w: number[]): number {
 export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): Card {
   const ctx = buildCtx(s, seat);
   const isNull = ctx.contract.type === 'null';
-  const weights = isNull ? (ctx.iAmDeclarer ? w.nullDecl : w.nullDef) : ctx.iAmDeclarer ? w.suitDecl : w.suitDef;
+  const isGrand = ctx.contract.type === 'grand';
+  let weights: number[];
+  if (isNull) weights = ctx.iAmDeclarer ? w.nullDecl : w.nullDef;
+  else if (isGrand) weights = ctx.iAmDeclarer ? (w.grandDecl ?? w.suitDecl) : (w.grandDef ?? w.suitDef);
+  else weights = ctx.iAmDeclarer ? w.suitDecl : w.suitDef;
   const feats = isNull ? nullFeatures : suitFeatures;
 
   let best = legal[0];
@@ -313,6 +363,61 @@ export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: Pl
     if (sc > bestScore) {
       bestScore = sc;
       best = c;
+    }
+  }
+  return best;
+}
+
+// ---- learnable skat discard ------------------------------------------------
+
+// Features of burying the pair (a, b) from the 12-card hand in a suit/grand game.
+function discSuitFeatures(a: Card, b: Card, hand: Card[], contract: Contract): number[] {
+  const pair = [a, b];
+  const pts = (cardPoints(a) + cardPoints(b)) / 22;
+  const trump = (isTrump(a, contract) ? 1 : 0) + (isTrump(b, contract) ? 1 : 0);
+  const ace = (a.rank === 'A' ? 1 : 0) + (b.rank === 'A' ? 1 : 0);
+  const hasAceOf = (suit: string) => hand.some((c) => c.rank === 'A' && c.suit === suit);
+  const tenBare = pair.reduce((n, c) => n + (c.rank === '10' && !isTrump(c, contract) && !hasAceOf(c.suit) ? 1 : 0), 0);
+  // Voids created: a non-trump category all of whose cards are in the pair.
+  let voids = 0;
+  for (const cat of new Set(pair.map((c) => leadSuit(c, contract)))) {
+    if (cat === 'T') continue;
+    const inHand = hand.filter((c) => leadSuit(c, contract) === cat).length;
+    const inPair = pair.filter((c) => leadSuit(c, contract) === cat).length;
+    if (inHand > 0 && inPair === inHand) voids++;
+  }
+  const str = str01(a, contract) + str01(b, contract);
+  return [pts, trump, ace, tenBare, voids, str];
+}
+
+// Features of burying the pair (a, b) in a null game (no trumps; bury danger).
+function discNullFeatures(a: Card, b: Card, hand: Card[]): number[] {
+  const pair = [a, b];
+  const rank = nullRank01(a) + nullRank01(b);
+  const ace = (a.rank === 'A' ? 1 : 0) + (b.rank === 'A' ? 1 : 0);
+  let voids = 0;
+  for (const cat of new Set(pair.map((c) => c.suit))) {
+    const inHand = hand.filter((c) => c.suit === cat).length;
+    const inPair = pair.filter((c) => c.suit === cat).length;
+    if (inHand > 0 && inPair === inHand) voids++;
+  }
+  const low = pair.reduce((n, c) => n + (c.rank === '7' || c.rank === '8' || c.rank === '9' ? 1 : 0), 0);
+  return [rank, ace, voids, low];
+}
+
+// Bury the highest-scoring pair from the 12-card hand. Returns null when no discard
+// weights are set, so the caller falls back to the hand-written heuristic.
+export function chooseDiscardScored(hand12: Card[], contract: Contract, w: PlayWeights): [Card, Card] | null {
+  const isNull = contract.type === 'null';
+  const weights = isNull ? w.discNull : w.discSuit;
+  if (!weights || weights.length === 0) return null;
+  let best: [Card, Card] = [hand12[0], hand12[1]];
+  let bestScore = -Infinity;
+  for (let i = 0; i < hand12.length; i++) {
+    for (let j = i + 1; j < hand12.length; j++) {
+      const f = isNull ? discNullFeatures(hand12[i], hand12[j], hand12) : discSuitFeatures(hand12[i], hand12[j], hand12, contract);
+      const sc = dot(f, weights);
+      if (sc > bestScore) { bestScore = sc; best = [hand12[i], hand12[j]]; }
     }
   }
   return best;
@@ -339,6 +444,9 @@ export function defaultPlayWeights(): PlayWeights {
   suitDecl[21] = 1.5; // grab the trick that clinches 61
   suitDecl[22] = 0.4; // once safe, press for schneider
   suitDecl[23] = 0.8; // graded trump pull
+  suitDecl[28] = 0.4; // press to 90 (schneider) once safe
+  suitDecl[29] = 0.3; // cash winners late
+  suitDecl[30] = -0.5; // don't hand a ten to an opponent
 
   const suitDef = new Array<number>(SUIT_NF).fill(0);
   suitDef[0] = -0.6; // lead low
@@ -352,6 +460,9 @@ export function defaultPlayWeights(): PlayWeights {
   suitDef[18] = -1.2; // never feed the declarer points
   suitDef[20] = 1.0; // lead into the partner's ruff
   suitDef[21] = 1.5; // grab the trick that secures 60 for the defence
+  suitDef[27] = 1.2; // secure 30 to deny the declarer schneider
+  suitDef[29] = 0.2; // cash winners late
+  suitDef[30] = -0.5; // don't hand a ten to the declarer
 
   const nullDecl = new Array<number>(NULL_NF).fill(0);
   nullDecl[3] = -5.0; // catastrophic to win a trick
@@ -365,5 +476,21 @@ export function defaultPlayWeights(): PlayWeights {
   nullDef[3] = -1.0; // don't grab the trick ourselves
   nullDef[4] = -0.4; // keep high cards back
 
-  return { suitDecl, suitDef, nullDecl, nullDef };
+  // Discard priors that roughly reproduce the heuristic: bury low non-trump cards,
+  // bank points, create a void, never bury trumps or aces; null buries the danger.
+  const discSuit = new Array<number>(DISC_SUIT_NF).fill(0);
+  discSuit[0] = 0.5; // bank points into the skat
+  discSuit[1] = -5.0; // never bury a trump
+  discSuit[2] = -3.0; // keep aces
+  discSuit[3] = 1.5; // bury a bare ten (bank the 10 safely)
+  discSuit[4] = 2.0; // create a ruffing void
+  discSuit[5] = -1.2; // keep strong cards, bury weak
+
+  const discNull = new Array<number>(DISC_NULL_NF).fill(0);
+  discNull[0] = 1.0; // bury high cards
+  discNull[1] = 3.0; // bury aces
+  discNull[2] = 1.5; // create a void
+  discNull[3] = -1.5; // keep low cards
+
+  return { suitDecl, suitDef, nullDecl, nullDef, discSuit, discNull };
 }
