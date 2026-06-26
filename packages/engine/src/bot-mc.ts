@@ -77,7 +77,10 @@ function playoutWin(d: Deal, contract: Contract, params: BotParams): boolean {
     }
     if (r.phase === 'declaring') {
       if (r.declareStep === 'choose') return { type: 'takeSkat', seat: 0 };
-      if (r.declareStep === 'discard') return { type: 'discard', seat: 0, cards: discardFor(r.hands[0], contract) };
+      if (r.declareStep === 'discard') {
+        const scored = params.mcScoredDiscard && params.playW ? chooseDiscardScored(r.hands[0], contract, params.playW) : null;
+        return { type: 'discard', seat: 0, cards: scored ?? discardFor(r.hands[0], contract) };
+      }
       if (r.declareStep === 'contract') return { type: 'declareContract', seat: 0, contract };
       return null;
     }

@@ -102,6 +102,13 @@ export interface BotParams {
   // suitHand* genes are then unused). Card play is unaffected. Higher = less noisy but
   // slower (~tens of ms per decision at 32). 0/undefined keeps the formula bidder.
   mcBidK?: number;
+
+  // --- When > 0, the MC bid-evaluation playouts (bot-mc.ts) lay the skat away with the
+  // LEARNED scored discard (playW.discSuit/discNull) instead of the cheap heuristic, so
+  // the simulated win rate matches how the bot will ACTUALLY play. With a strong learned
+  // discard the heuristic-discard playouts under-rate hands and the bot under-bids; this
+  // aligns the estimate with reality. 0/undefined keeps the heuristic in playouts.
+  mcScoredDiscard?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -191,6 +198,13 @@ export const DEFAULT_PARAMS: BotParams = {
   // The suit*/grand*/null bidding genes above are now inert in production (kept for
   // the formula bidder, used when mcBidK is 0, e.g. the evolution harnesses).
   mcBidK: 32,
+
+  // MC bid playouts lay the skat away with the learned discard, so the simulated win
+  // rate matches actual play. Without it the bidder under-rated hands and passed too
+  // many; turning it on declares ~65% more (the now-winnable hands the better discard
+  // unlocked) for +4.7 pts/deal vs the heuristic-discard bidder, validated by a paired
+  // MC A/B across three seeds (+5.35/+4.65/+4.13). Pairs with the learned discard above.
+  mcScoredDiscard: 1,
 
   scorePlay: 1,
   playW: {
