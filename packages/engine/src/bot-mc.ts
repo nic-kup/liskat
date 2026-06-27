@@ -142,6 +142,48 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
   return result;
 }
 
+const memo12 = new Map<string, McResult>();
+
+// Re-evaluate the contract AFTER taking the skat, with all 12 declarer cards known (only
+// the 20 opponent cards are determinized). The bid-time estimate uses the original 10
+// cards and so can be stale once the skat lands -- the two new cards can swing which game
+// is best (e.g. a jack arriving makes grand the play). The scored discard is applied
+// inside the playout, matching real play. 10 known cards go in the hand and 2 in the skat
+// so the existing playout (which takes the skat, then discards) reconstitutes all 12.
+export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PARAMS): McResult {
+  const K = Math.max(1, params.mcBidK ?? 0);
+  const cache = params === DEFAULT_PARAMS;
+  const key = hand12.map(cardId).sort().join('') + ':' + K;
+  if (cache) { const hit = memo12.get(key); if (hit) return hit; }
+
+  const rnd = lcg(seedOf(hand12));
+  const known = new Set(hand12.map(cardId));
+  const rest = DECK.filter((c) => !known.has(cardId(c))); // the 20 opponent cards
+  const h10 = hand12.slice(0, 10);
+  const sk2 = hand12.slice(10, 12) as [Card, Card];
+  let bestContract: Contract = CONTRACTS[0];
+  let bestEv = -Infinity;
+  let bestValue = 0;
+  let ceilingAny = 0;
+  const posGames: PosGame[] = [];
+  for (const contract of CONTRACTS) {
+    let won = 0;
+    for (let k = 0; k < K; k++) {
+      const sh = shuffle(rest, rnd);
+      const deal: Deal = { hands: [h10.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sk2 };
+      if (playoutWin(deal, contract, params)) won++;
+    }
+    const p = won / K;
+    const value = contract.type === 'null' ? previewGameValue(contract, 0, {}) : previewGameValue(contract, countMatadors(hand12, contract), {});
+    const ev = p * value - (1 - p) * 2 * value;
+    if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; }
+    if (ev > 0) { posGames.push({ contract, value, ev }); if (value > ceilingAny) ceilingAny = value; }
+  }
+  const result: McResult = { contract: bestContract, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
+  if (cache) { if (memo12.size > 4096) memo12.clear(); memo12.set(key, result); }
+  return result;
+}
+
 // Bidding via the MC ceiling (mirrors the formula bidder's auction logic, but the
 // ceiling is the simulated best contract's value).
 export function mcBidAction(s: RoundState, seat: Seat, p: BotParams): Action {
@@ -166,7 +208,9 @@ export function mcDeclareAction(s: RoundState, seat: Seat, p: BotParams): Action
   // so the contract matches what the auction ceiling was based on.
   const hand = s.hands[seat];
   const orig = hand.length > 10 ? hand.slice(0, 10) : hand;
-  const ev = mcEvaluateHand(orig, p);
+  // mcPostSkat: re-evaluate with the actual 12 cards (the skat may have changed the best
+  // game); otherwise use the bid-time 10-card estimate.
+  const ev = p.mcPostSkat && hand.length > 10 ? mcEvaluateHand12(hand, p) : mcEvaluateHand(orig, p);
   let contract = ev.contract;
   // Safety: the declared contract must cover the won bid (value uses the full 12 cards).
   const gv = (c: Contract) => (c.type === 'null' ? previewGameValue(c, 0, {}) : previewGameValue(c, countMatadors(hand, c), {}));

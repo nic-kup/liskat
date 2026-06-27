@@ -116,6 +116,12 @@ export interface BotParams {
   // drop another game it would still profitably play (e.g. keep a +EV grand alive once the
   // bid passes a higher-EV but lower-value suit). 0/undefined keeps the best-game ceiling.
   mcAnyPositiveEV?: number;
+
+  // --- When > 0, the declarer RE-EVALUATES the contract after taking the skat using all
+  // 12 known cards (bot-mc.ts mcEvaluateHand12), instead of the bid-time 10-card estimate.
+  // The two skat cards can change which game is best; this declares the one the actual
+  // hand supports. Only affects the declare step (once per game), not bidding.
+  mcPostSkat?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -219,6 +225,13 @@ export const DEFAULT_PARAMS: BotParams = {
   // unlocked) for +4.7 pts/deal vs the heuristic-discard bidder, validated by a paired
   // MC A/B across three seeds (+5.35/+4.65/+4.13). Pairs with the learned discard above.
   mcScoredDiscard: 1,
+
+  // Re-evaluate the contract after taking the skat using all 12 known cards instead of
+  // the bid-time 10-card estimate -- the two skat cards can flip which game is best, so
+  // declare the one the actual hand supports. +0.86 pts/deal, paired MC A/B across three
+  // seeds (+0.80/+0.30/+1.49). The declared game rarely changes, but re-declaring the
+  // right one when it does is worth it. Only runs at declare time (once per game).
+  mcPostSkat: 1,
 
   scorePlay: 1,
   playW: {
