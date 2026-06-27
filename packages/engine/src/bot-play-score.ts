@@ -100,6 +100,11 @@ export const SUIT_FEATURES = [
   //     donated to the ruff). Grade it by the high points (A/10) still outstanding in the
   //     suit, so the model keeps forcing low-card ruffs but avoids donating high cards.
   'lead_ruff_highpts', // leading: a side suit a waiting opponent can ruff, scaled by the A/10 still out in it (we'd feed them to the ruff)
+  // --- iteration 7 (defender card-awareness): don't take a trick our PARTNER already
+  //     holds. When I am LAST to play and my ally is winning, there is no opponent left
+  //     to beat them, so overtaking only wastes a high card (schmier instead). Naturally
+  //     defender-only: a declarer has no ally, so friendWinning is never set for them.
+  'overtake_partner', // following+win+last: this card takes the trick FROM my winning partner (pure waste)
 ] as const;
 
 export const NULL_FEATURES = [
@@ -325,6 +330,10 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     f[28] = ctx.iAmDeclarer && ctx.myBanked < 90 && ctx.myBanked + captPoints >= 90 ? win : 0; // declarer: cross 90 (schneider press)
     f[29] = win * (ctx.trickCount / 10); // endgame urgency: a win is worth more late
     f[30] = lose * isTen * (ctx.oppWinning ? 1 : 0); // protect tens: don't surrender a 10 to an opponent
+    // RUFFING my winning partner as last hand: I spend a trump to take a side-suit trick
+    // the partner already holds -- pure waste of a trump (in-suit overtakes that bank points
+    // are left alone; self-play rewards banking, since a kept high card often gets ruffed).
+    f[32] = win * (ctx.friendWinning ? 1 : 0) * (isLast ? 1 : 0) * trump * ruffSide;
   }
   return f;
 }

@@ -270,7 +270,18 @@ export const DEFAULT_PARAMS: BotParams = {
       // over-leads ruffable suits; this counters it ONLY when high cards would be donated).
       // ~neutral in self-play (the bot can't see the partner's A/10) but fixes a real
       // human-observed mistake; defender-role edge +0.034 across 3 seeds, scenario-verified.
-      0, 0, 0, 0, -2.5,
+      // idx 32 overtake_partner = -6: don't RUFF (spend a trump on) a side-suit trick my
+      // partner already holds as the last hand -- pure trump waste (game-watcher found ~180
+      // such blunders / 600 deals, e.g. ruffing partner's winning ace). Bidding-isolated
+      // paired A/B (formula bidder, 1500 deals x3 seeds): -3 vs 0 = +0.062/+0.053/-0.009
+      // aggregate, def-role +0.136/+0.115/-0.020. The MC-bidder A/B looked negative only
+      // because the candidate's bid playouts simulate the new defenders while FACING old ones
+      // -- an asymmetric-A/B artifact that vanishes in production (homogeneous weights).
+      // STRENGTHENED -3 -> -6 (iter 14): -3 left ~13/600 residual ruff-partner-last (clinch
+      // situations where win_clinch +2.85 overpowered it); -6 drops it to 9 (all FORCED:
+      // single-card/all-trump hands that must ruff), and -8 gives no further reduction.
+      // -6 vs -3 is FORMULA-neutral (+0.000 across seeds), so it strictly dominates -3.
+      0, 0, 0, 0, -2.5, -6,
     ],
     // Tuned by experiments/evolve-null.ts (forced-null arena): 37.6% forced-null win
     // rate vs the heuristic's 30.5% out-of-sample, and better in every hand-strength
