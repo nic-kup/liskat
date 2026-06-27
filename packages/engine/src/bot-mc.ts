@@ -64,7 +64,9 @@ function active(r: RoundState): Seat | null {
   return null;
 }
 // One determinized playout: seat 0 declares `contract`, scored play for all seats.
-function playoutWin(d: Deal, contract: Contract, params: BotParams): boolean {
+// Returns whether the declarer won AND the realized game value (schneider/schwarz baked
+// in), so the EV can account for win/loss MAGNITUDE, not just win rate.
+function playoutResult(d: Deal, contract: Contract, params: BotParams): { won: boolean; value: number } {
   let r = createRound(d);
   let guard = 0;
   const step = (seat: Seat): Action | null => {
@@ -97,7 +99,11 @@ function playoutWin(d: Deal, contract: Contract, params: BotParams): boolean {
     if (!a) throw new Error('no playout action');
     r = applyAction(r, a);
   }
-  return !!(r.result && r.result.won);
+  return { won: !!(r.result && r.result.won), value: r.result?.value ?? 0 };
+}
+// Thin wrapper for callers that only need the win/loss outcome.
+function playoutWin(d: Deal, contract: Contract, params: BotParams): boolean {
+  return playoutResult(d, contract, params).won;
 }
 
 interface PosGame { contract: Contract; value: number; ev: number }
@@ -126,14 +132,19 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
   const posGames: PosGame[] = [];
   for (const contract of CONTRACTS) {
     let won = 0;
+    let scoreSum = 0;
     for (let k = 0; k < K; k++) {
       const sh = shuffle(rest, rnd);
       const deal: Deal = { hands: [hand0.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sh.slice(20, 22) as [Card, Card] };
-      if (playoutWin(deal, contract, params)) won++;
+      const res = playoutResult(deal, contract, params);
+      if (res.won) won++;
+      scoreSum += res.won ? res.value : -2 * res.value;
     }
     const p = won / K;
     const value = contract.type === 'null' ? previewGameValue(contract, 0, {}) : previewGameValue(contract, countMatadors(hand0, contract), {});
-    const ev = p * value - (1 - p) * 2 * value;
+    // mcRichEV: mean realized signed value (schneider/schwarz included) instead of the
+    // base-value win/loss EV. The ceiling stays at base value (the bid can't exceed it).
+    const ev = params.mcRichEV ? scoreSum / K : p * value - (1 - p) * 2 * value;
     if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; }
     if (ev > 0) { posGames.push({ contract, value, ev }); if (value > ceilingAny) ceilingAny = value; }
   }
@@ -168,14 +179,17 @@ export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PAR
   const posGames: PosGame[] = [];
   for (const contract of CONTRACTS) {
     let won = 0;
+    let scoreSum = 0;
     for (let k = 0; k < K; k++) {
       const sh = shuffle(rest, rnd);
       const deal: Deal = { hands: [h10.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sk2 };
-      if (playoutWin(deal, contract, params)) won++;
+      const res = playoutResult(deal, contract, params);
+      if (res.won) won++;
+      scoreSum += res.won ? res.value : -2 * res.value;
     }
     const p = won / K;
     const value = contract.type === 'null' ? previewGameValue(contract, 0, {}) : previewGameValue(contract, countMatadors(hand12, contract), {});
-    const ev = p * value - (1 - p) * 2 * value;
+    const ev = params.mcRichEV ? scoreSum / K : p * value - (1 - p) * 2 * value;
     if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; }
     if (ev > 0) { posGames.push({ contract, value, ev }); if (value > ceilingAny) ceilingAny = value; }
   }

@@ -122,6 +122,13 @@ export interface BotParams {
   // The two skat cards can change which game is best; this declares the one the actual
   // hand supports. Only affects the declare step (once per game), not bidding.
   mcPostSkat?: number;
+
+  // --- When > 0, the MC EV uses the MEAN REALIZED game value across playouts (won? value
+  // : -2*value, with schneider/schwarz baked into value) instead of P(win)*BASE -
+  // P(loss)*2*BASE. Accounts for win/loss MAGNITUDE -- strong hands that often win with
+  // schneider, and losses that get schneidered against. The bid ceiling stays at base
+  // value. 0/undefined keeps the base-value EV.
+  mcRichEV?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -232,6 +239,13 @@ export const DEFAULT_PARAMS: BotParams = {
   // seeds (+0.80/+0.30/+1.49). The declared game rarely changes, but re-declaring the
   // right one when it does is worth it. Only runs at declare time (once per game).
   mcPostSkat: 1,
+
+  // EV uses the mean REALIZED game value across playouts (schneider/schwarz included)
+  // instead of P(win)*base - P(loss)*2*base, so the bidder accounts for win/loss
+  // MAGNITUDE (strong hands that win with schneider, losses schneidered against), not
+  // just win rate. +0.53 pts/deal, paired MC A/B across three seeds (+0.39/+0.43/+0.77);
+  // bid volume barely moves, so the gain is purely better game choice.
+  mcRichEV: 1,
 
   scorePlay: 1,
   playW: {
