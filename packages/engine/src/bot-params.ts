@@ -109,6 +109,13 @@ export interface BotParams {
   // discard the heuristic-discard playouts under-rate hands and the bot under-bids; this
   // aligns the estimate with reality. 0/undefined keeps the heuristic in playouts.
   mcScoredDiscard?: number;
+
+  // --- When > 0, the MC bidder holds the auction up to the highest VALUE among ALL +EV
+  // games, not just its single best-EV game, and at declare time picks the best-EV +EV
+  // game that covers the won bid. So a bid pushed past the best game doesn't make the bot
+  // drop another game it would still profitably play (e.g. keep a +EV grand alive once the
+  // bid passes a higher-EV but lower-value suit). 0/undefined keeps the best-game ceiling.
+  mcAnyPositiveEV?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -198,6 +205,13 @@ export const DEFAULT_PARAMS: BotParams = {
   // The suit*/grand*/null bidding genes above are now inert in production (kept for
   // the formula bidder, used when mcBidK is 0, e.g. the evolution harnesses).
   mcBidK: 32,
+
+  // Hold the auction up to the most valuable +EV game (not just the single best-EV game)
+  // and declare the best-EV game that covers the won bid -- never drop a game we'd still
+  // profitably play. Correctness fix; ~neutral on average (paired MC A/B +0.50/-0.32/+0.15
+  // across 3 seeds, pooled +0.11 -- the bid-between-two-+EV-games case is rare) but strictly
+  // right in the cases it fires.
+  mcAnyPositiveEV: 1,
 
   // MC bid playouts lay the skat away with the learned discard, so the simulated win
   // rate matches actual play. Without it the bidder under-rated hands and passed too

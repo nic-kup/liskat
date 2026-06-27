@@ -100,7 +100,11 @@ function playoutWin(d: Deal, contract: Contract, params: BotParams): boolean {
   return !!(r.result && r.result.won);
 }
 
-interface McResult { contract: Contract; ceiling: number; ev: number }
+interface PosGame { contract: Contract; value: number; ev: number }
+// contract = best-EV game; ceiling = its value (old behaviour: bid up to the best game);
+// ceilingAny = highest value among ALL +EV games (bid up to the most valuable +EV game,
+// since the bot is willing to PLAY any +EV game); posGames = every +EV game.
+interface McResult { contract: Contract; ceiling: number; ceilingAny: number; ev: number; posGames: PosGame[] }
 const memo = new Map<string, McResult>();
 
 // Estimate the best contract for a 10-card hand by simulated EV. EV (session points)
@@ -115,7 +119,11 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
   const rnd = lcg(seedOf(hand0));
   const known = new Set(hand0.map(cardId));
   const rest = DECK.filter((c) => !known.has(cardId(c)));
-  let best: McResult = { contract: CONTRACTS[0], ceiling: 0, ev: -Infinity };
+  let bestContract: Contract = CONTRACTS[0];
+  let bestEv = -Infinity;
+  let bestValue = 0;
+  let ceilingAny = 0;
+  const posGames: PosGame[] = [];
   for (const contract of CONTRACTS) {
     let won = 0;
     for (let k = 0; k < K; k++) {
@@ -126,16 +134,22 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
     const p = won / K;
     const value = contract.type === 'null' ? previewGameValue(contract, 0, {}) : previewGameValue(contract, countMatadors(hand0, contract), {});
     const ev = p * value - (1 - p) * 2 * value;
-    if (ev > best.ev) best = { contract, ceiling: ev > 0 ? value : 0, ev };
+    if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; }
+    if (ev > 0) { posGames.push({ contract, value, ev }); if (value > ceilingAny) ceilingAny = value; }
   }
-  if (cache) { if (memo.size > 4096) memo.clear(); memo.set(key, best); }
-  return best;
+  const result: McResult = { contract: bestContract, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
+  if (cache) { if (memo.size > 4096) memo.clear(); memo.set(key, result); }
+  return result;
 }
 
 // Bidding via the MC ceiling (mirrors the formula bidder's auction logic, but the
 // ceiling is the simulated best contract's value).
 export function mcBidAction(s: RoundState, seat: Seat, p: BotParams): Action {
-  const { ceiling } = mcEvaluateHand(s.hands[seat], p);
+  const r = mcEvaluateHand(s.hands[seat], p);
+  // With mcAnyPositiveEV the bot holds the auction up to the most valuable +EV game, not
+  // just its single best game -- so a bid past the best game doesn't make it drop a game
+  // it would still profitably play.
+  const ceiling = p.mcAnyPositiveEV ? r.ceilingAny : r.ceiling;
   const b = s.bidding;
   if (b.awaiting === 'forehand-decision') return ceiling >= 18 ? { type: 'bid', seat, value: 18 } : { type: 'pass', seat };
   if (b.awaiting === 'response') return b.currentBid <= ceiling ? { type: 'hold', seat } : { type: 'pass', seat };
@@ -152,9 +166,16 @@ export function mcDeclareAction(s: RoundState, seat: Seat, p: BotParams): Action
   // so the contract matches what the auction ceiling was based on.
   const hand = s.hands[seat];
   const orig = hand.length > 10 ? hand.slice(0, 10) : hand;
-  let contract = mcEvaluateHand(orig, p).contract;
+  const ev = mcEvaluateHand(orig, p);
+  let contract = ev.contract;
   // Safety: the declared contract must cover the won bid (value uses the full 12 cards).
   const gv = (c: Contract) => (c.type === 'null' ? previewGameValue(c, 0, {}) : previewGameValue(c, countMatadors(hand, c), {}));
+  // If the auction was pushed past the best game, declare the highest-EV +EV game that
+  // still covers the won bid (matching the ceilingAny bidding logic above).
+  if (p.mcAnyPositiveEV) {
+    const covering = ev.posGames.filter((g) => gv(g.contract) >= s.bid).sort((a, b) => b.ev - a.ev);
+    if (covering.length) contract = covering[0].contract;
+  }
   if (gv(contract) < s.bid) {
     let bestCover: { c: Contract; v: number } | null = null;
     for (const c of [{ type: 'grand' } as Contract, ...SUITS.map((su) => ({ type: 'suit', suit: su }) as Contract)]) {
