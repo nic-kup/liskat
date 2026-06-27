@@ -281,7 +281,14 @@ export const DEFAULT_PARAMS: BotParams = {
       // situations where win_clinch +2.85 overpowered it); -6 drops it to 9 (all FORCED:
       // single-card/all-trump hands that must ruff), and -8 gives no further reduction.
       // -6 vs -3 is FORMULA-neutral (+0.000 across seeds), so it strictly dominates -3.
-      0, 0, 0, 0, -2.5, -6,
+      // idx 33 lead_dead_master = -6: don't "cash" a master that's DEAD (a master in a side
+      // suit the declarer is shown void in + can ruff) -- leading it just donates the honour to
+      // the declarer's ruff instead of keeping it to schmier onto the partner (game-watcher
+      // found 233/600 such donations of K/10/A). Complement of lead_master_safe (idx 5); a
+      // negative weight cancels the spurious lead_master+lead_ruffrisk pull. Bidding-isolated
+      // A/B (formula bidder, 1500 deals x3): +0.107/+0.009/+0.000 aggregate, def-role
+      // +0.233/+0.019/+0.000. Scenario-verified (scenario-deadmaster.ts).
+      0, 0, 0, 0, -2.5, -6, -6,
     ],
     // Tuned by experiments/evolve-null.ts (forced-null arena): 37.6% forced-null win
     // rate vs the heuristic's 30.5% out-of-sample, and better in every hand-strength

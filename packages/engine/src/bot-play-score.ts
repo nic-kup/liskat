@@ -105,6 +105,15 @@ export const SUIT_FEATURES = [
   //     to beat them, so overtaking only wastes a high card (schmier instead). Naturally
   //     defender-only: a declarer has no ally, so friendWinning is never set for them.
   'overtake_partner', // following+win+last: this card takes the trick FROM my winning partner (pure waste)
+  // --- iteration 16 (defender card-awareness): don't "cash" a DEAD master. lead_master
+  //     (+3.73) rewards leading a master, but a master in a side suit a waiting opponent can
+  //     ruff is dead -- it gets ruffed whenever led, so leading it just donates the card to the
+  //     declarer's ruff instead of keeping it to schmier onto my partner. This is the direct
+  //     complement of lead_master_safe (master AND NOT ruffable): master AND ruffable. A
+  //     negative weight cancels the spurious master-cash bonus so the bot leads a low/other
+  //     card and holds the honour. (A declarer never has a waiting OPPONENT to ruff a side
+  //     lead, so this is effectively defender-only.)
+  'lead_dead_master', // leading: a master in a side suit a waiting opp can ruff (dead -> don't donate it)
 ] as const;
 
 export const NULL_FEATURES = [
@@ -308,6 +317,9 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     // graded ruff-risk: leading a side suit a waiting opponent can ruff, scaled by the
     // A/10 still out in it (those high cards would be fed to the ruff).
     f[31] = !trump && waitingCanRuff(c.suit, ctx) ? outstandingHighPts(c.suit, ctx) / 21 : 0;
+    // don't cash a DEAD master: a master in a side suit a waiting opponent can ruff just gets
+    // ruffed -> lead a low/other card and keep the honour to schmier. Complement of f[5].
+    f[33] = !trump && master && waitingCanRuff(c.suit, ctx) ? 1 : 0;
   } else {
     f[8] = win;
     f[9] = win * capt01;
