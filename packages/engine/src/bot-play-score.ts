@@ -23,7 +23,7 @@
 // enter only multiplied into a per-card property.
 
 import type { Card, Contract, Seat } from './types.ts';
-import { cardPoints, totalPoints } from './cards.ts';
+import { cardId, cardPoints, totalPoints } from './cards.ts';
 import { isTrump, leadSuit, trickWinner } from './ordering.ts';
 import { buildMemory, isCategoryMaster, outstandingTrumps, type PlayMemory } from './bot-memory.ts';
 import type { RoundState } from './round.ts';
@@ -95,6 +95,11 @@ export const SUIT_FEATURES = [
   'decl_press90', // following+win (declarer): already past 61, this trick crosses 90 -> schneiders the defenders (raises game value)
   'win_late', // following+win: scaled by how late in the hand it is (cash winners when fewer tricks remain)
   'ten_protect', // following+lose: surrendering a TEN (10 pts, beaten only by the ace) to an opponent -- sharper than generic lose_pts
+  // --- iteration 6: graded ruff-risk. The binary lead_ruffrisk can't tell a GOOD force-ruff
+  //     (declarer ruffs a low card, wasting a trump) from a BAD one (our side's A/10 get
+  //     donated to the ruff). Grade it by the high points (A/10) still outstanding in the
+  //     suit, so the model keeps forcing low-card ruffs but avoids donating high cards.
+  'lead_ruff_highpts', // leading: a side suit a waiting opponent can ruff, scaled by the A/10 still out in it (we'd feed them to the ruff)
 ] as const;
 
 export const NULL_FEATURES = [
@@ -250,6 +255,17 @@ function partnerCanRuff(suit: string, ctx: Ctx): boolean {
   return ctx.waitingPartners.some((o) => ctx.mem.voids[o].has(suit as any) && !ctx.mem.voids[o].has('T'));
 }
 
+// High points (A/10) of side suit `suit` that are still OUT THERE: not yet played and
+// not in our own hand, so an opponent's ruff of this suit would capture them.
+function outstandingHighPts(suit: string, ctx: Ctx): number {
+  let pts = 0;
+  for (const [rank, p] of [['A', 11], ['10', 10]] as const) {
+    const inHand = ctx.hand.some((h) => h.suit === suit && h.rank === rank);
+    if (!inHand && !ctx.mem.playedIds.has(cardId({ suit: suit as Card['suit'], rank }))) pts += p;
+  }
+  return pts;
+}
+
 // ---- feature extraction ----------------------------------------------------
 
 // Feature vector for a suit/grand candidate card. Order matches SUIT_FEATURES.
@@ -284,6 +300,9 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     f[23] = trump ? Math.min(ctx.oppTrumpsOut, 6) / 6 : 0; // graded trump pull
     f[24] = trump ? len : 0; // split of lead_len: trump-suit length
     f[25] = !trump ? len : 0; // split of lead_len: side-suit length
+    // graded ruff-risk: leading a side suit a waiting opponent can ruff, scaled by the
+    // A/10 still out in it (those high cards would be fed to the ruff).
+    f[31] = !trump && waitingCanRuff(c.suit, ctx) ? outstandingHighPts(c.suit, ctx) / 21 : 0;
   } else {
     f[8] = win;
     f[9] = win * capt01;

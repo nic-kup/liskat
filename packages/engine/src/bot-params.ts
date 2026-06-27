@@ -264,6 +264,13 @@ export const DEFAULT_PARAMS: BotParams = {
       4.296792424164944, -1.873368219179978, 1.763555985757881, -3.1689900781268867, 1.0726161299627845,
       0.32155471069471164, 2.8533616605635284, 0.19168482001074622, -0.28743961754104697, -1.8609522886516419,
       1.7167489779699594, -3.15040543413941,
+      // idx 27-30 (iter-5 features def_secure30/decl_press90/win_late/ten_protect) stay
+      // inert; idx 31 lead_ruff_highpts = -2.5: don't lead a side suit the declarer can
+      // ruff when our A/10 are still out in it (the evolved lead_ruffrisk at idx 7 = +2.36
+      // over-leads ruffable suits; this counters it ONLY when high cards would be donated).
+      // ~neutral in self-play (the bot can't see the partner's A/10) but fixes a real
+      // human-observed mistake; defender-role edge +0.034 across 3 seeds, scenario-verified.
+      0, 0, 0, 0, -2.5,
     ],
     // Tuned by experiments/evolve-null.ts (forced-null arena): 37.6% forced-null win
     // rate vs the heuristic's 30.5% out-of-sample, and better in every hand-strength
