@@ -248,81 +248,26 @@ export const DEFAULT_PARAMS: BotParams = {
   mcRichEV: 1,
 
   scorePlay: 1,
+  // Play weights. DECLARER (suitDecl, grandDecl) and the discard (discSuit, discNull) were
+  // RE-LEARNED by GA search on the real-game arena (experiments/train-relearn.ts: lone scored
+  // bot vs two frozen production bots, formula bidder so no play->bid feedback). The search
+  // found a clear DECLARER improvement -- worth ~+0.38 pts/deal on the bidding-isolated FORMULA
+  // paired A/B vs the prior production (4 seeds +0.76/+0.30/+0.39/+0.07, all in the declarer
+  // role; grandDecl is now a SEPARATE grand-declarer vector, previously a suit fallback).
+  // DEFENDER (suitDef, grandDef) and null vectors are KEPT from the prior hand-tuned production:
+  // the search did NOT improve defender play (its searched defender weights were flat-to-slightly
+  // -negative on the A/B), so per "take the better one" the existing defender weights stay --
+  // which also preserves the validated overtake_partner (idx 32) and lead_dead_master (idx 33)
+  // fixes. suitDef still ends -2.5, -6, -6 (lead_ruff_highpts, overtake_partner, lead_dead_master).
   playW: {
-    suitDecl: [
-      1.3085431951619018, -1.9267888661997805, -4.885637635440492, 5.312465699647187, 1.4367640819543472,
-      0.8963894884408642, 4.562916374847021, 1.1217291366460285, 0.1001914478308864, 1.6548289662395663,
-      -2.760466448837775, 1.1665052154573232, 0.2756020139619183, 1.621428257744532, -0.6725496083047564,
-      -1.8916470868020616, -0.6073489905757306, 3.7950285287444707, -3.923666942587574, 0.549019545222805,
-      -0.45479158368488676, 2.771156117377572, -0.9929575758013224, 0.5189654964774506, -0.29311621105731567,
-      0.4514291791053511, -0.5483765327972963,
-    ],
-    suitDef: [
-      0.487751375761592, -2.9290587588937766, -4.8431123140413375, 0.04580922085343578, 3.7348629054369646,
-      1.758428332905364, -0.3935328306808904, 2.3560827066620282, 3.4960643644561373, 1.72923036809147,
-      -2.5211808784652874, -0.7608597908083929, 3.4518967126228, 2.1801901720435444, -2.1935212901443575,
-      4.296792424164944, -1.873368219179978, 1.763555985757881, -3.1689900781268867, 1.0726161299627845,
-      0.32155471069471164, 2.8533616605635284, 0.19168482001074622, -0.28743961754104697, -1.8609522886516419,
-      1.7167489779699594, -3.15040543413941,
-      // idx 27-30 (iter-5 features def_secure30/decl_press90/win_late/ten_protect) stay
-      // inert; idx 31 lead_ruff_highpts = -2.5: don't lead a side suit the declarer can
-      // ruff when our A/10 are still out in it (the evolved lead_ruffrisk at idx 7 = +2.36
-      // over-leads ruffable suits; this counters it ONLY when high cards would be donated).
-      // ~neutral in self-play (the bot can't see the partner's A/10) but fixes a real
-      // human-observed mistake; defender-role edge +0.034 across 3 seeds, scenario-verified.
-      // idx 32 overtake_partner = -6: don't RUFF (spend a trump on) a side-suit trick my
-      // partner already holds as the last hand -- pure trump waste (game-watcher found ~180
-      // such blunders / 600 deals, e.g. ruffing partner's winning ace). Bidding-isolated
-      // paired A/B (formula bidder, 1500 deals x3 seeds): -3 vs 0 = +0.062/+0.053/-0.009
-      // aggregate, def-role +0.136/+0.115/-0.020. The MC-bidder A/B looked negative only
-      // because the candidate's bid playouts simulate the new defenders while FACING old ones
-      // -- an asymmetric-A/B artifact that vanishes in production (homogeneous weights).
-      // STRENGTHENED -3 -> -6 (iter 14): -3 left ~13/600 residual ruff-partner-last (clinch
-      // situations where win_clinch +2.85 overpowered it); -6 drops it to 9 (all FORCED:
-      // single-card/all-trump hands that must ruff), and -8 gives no further reduction.
-      // -6 vs -3 is FORMULA-neutral (+0.000 across seeds), so it strictly dominates -3.
-      // idx 33 lead_dead_master = -6: don't "cash" a master that's DEAD (a master in a side
-      // suit the declarer is shown void in + can ruff) -- leading it just donates the honour to
-      // the declarer's ruff instead of keeping it to schmier onto the partner (game-watcher
-      // found 233/600 such donations of K/10/A). Complement of lead_master_safe (idx 5); a
-      // negative weight cancels the spurious lead_master+lead_ruffrisk pull. Bidding-isolated
-      // A/B (formula bidder, 1500 deals x3): +0.107/+0.009/+0.000 aggregate, def-role
-      // +0.233/+0.019/+0.000. Scenario-verified (scenario-deadmaster.ts).
-      0, 0, 0, 0, -2.5, -6, -6,
-    ],
-    // Tuned by experiments/evolve-null.ts (forced-null arena): 37.6% forced-null win
-    // rate vs the heuristic's 30.5% out-of-sample, and better in every hand-strength
-    // bucket. nfollow_win is now strongly negative (never win a trick). Used for null
-    // DECLARER play; null DEFENDER still routes to the heuristic (see bot.ts).
-    nullDecl: [
-      -1.6709907837212086, 3.954270238056779, -0.4434547573328018, -3.641405599191785, -0.7664509229362011,
-      1.1660434026271105, -1.7166983261704445,
-    ],
-    // Tuned by experiments/evolve-nulldef.ts: sets a strong scored null declarer ~72%
-    // vs the heuristic's ~62% (out-of-sample, two fresh seeds). It learned the core
-    // null-defence rule -- nlead_declvoid strongly negative (never lead a suit the
-    // declarer is void in) -- plus lead-from-short-suits. Used for null DEFENDER play.
-    nullDef: [
-      -0.15261148330688679, -4.254484866025763, -3.534733506438587, -2.6070902547099566, 3.369348128250137,
-      -0.9696044106802282, -2.8794630630618467,
-    ],
-    // Learnable skat discard (bot-play-score.ts DISC_*_FEATURES), trained on the
-    // real-game arena (experiments/train-realgame.ts) and validated by a variance-
-    // reduced paired MC-bidder A/B vs the old heuristic discard: +5.3 pts/deal across
-    // three seeds (4242/9999/31337: +5.48/+4.69/+5.83), the gain entirely in the
-    // DECLARER role (+~24 pts/declared-game; defenders never discard, so their play is
-    // byte-identical to before). The old heuristic buried the lowest-POINT cards and
-    // so KEPT bare tens in hand where defenders' aces caught them; the learned policy
-    // never buries trumps (-4.49) or aces (-4.88), buries a bare ten to bank the 10
-    // safely (+1.04), and creates a ruffing void (+1.23) -- textbook druecken.
-    // discSuit features: [d_pts, d_trump, d_ace, d_ten_bare, d_void, d_str].
-    discSuit: [
-      -0.25071009279202877, -4.492415500608839, -4.880599052216065, 1.040416379162799, 1.2283957985959226,
-      0.4422676744831777,
-    ],
-    // discNull features: [dn_rank, dn_ace, dn_void, dn_low]. Bury the dangerous high
-    // cards/aces and make voids; keep the low cards back for safe ducking.
-    discNull: [2.8589344241275474, 1.3770521965608933, 1.8258151995518515, -1.5861749456878516],
+    suitDecl: [1.308543, -1.949084, -4.885638, 4.905055, 1.149042, 0.411017, 3.875155, 1.121729, -0.438159, 1.691516, -2.566437, 1.166505, 0.273881, 1.621428, -0.499651, -1.795083, -0.905148, 3.390503, -3.594902, -0.216665, 0.49171, 2.771156, -1.271242, 0.814301, -0.293116, -0.162628, -0.494069, 0.010716, -0.094207, 0, -0.283527, -0.053788, 0, 0.817863],
+    suitDef: [0.487751, -2.929059, -4.843112, 0.045809, 3.734863, 1.758428, -0.393533, 2.356083, 3.496064, 1.72923, -2.521181, -0.76086, 3.451897, 2.18019, -2.193521, 4.296792, -1.873368, 1.763556, -3.16899, 1.072616, 0.321555, 2.853362, 0.191685, -0.28744, -1.860952, 1.716749, -3.150405, 0, 0, 0, 0, -2.5, -6, -6],
+    grandDecl: [1.645909, -2.483149, -4.936745, 4.987506, 1.242564, 0.896389, 4.039699, 1.300281, 0.391092, 2.041361, -2.760466, 1.374567, -0.0314, 1.452362, -0.484694, -2.204918, -0.343821, 3.886154, -4.627031, 1.649609, -1.321752, 2.514468, -1.557942, 0.415492, -0.519832, 0.451429, -0.548377, 0.169945, -0.086565, 0, -0.218796, -1.206072, 0, 0],
+    grandDef: [0.487751, -2.929059, -4.843112, 0.045809, 3.734863, 1.758428, -0.393533, 2.356083, 3.496064, 1.72923, -2.521181, -0.76086, 3.451897, 2.18019, -2.193521, 4.296792, -1.873368, 1.763556, -3.16899, 1.072616, 0.321555, 2.853362, 0.191685, -0.28744, -1.860952, 1.716749, -3.150405, 0, 0, 0, 0, -2.5, -6, -6],
+    nullDecl: [-1.670991, 3.95427, -0.443455, -3.641406, -0.766451, 1.166043, -1.716698],
+    nullDef: [-0.152611, -4.254485, -3.534734, -2.60709, 3.369348, -0.969604, -2.879463],
+    discSuit: [-0.133363, -4.291359, -5.21138, 0.238447, 1.228396, 0.88801],
+    discNull: [2.958071, 1.253295, 1.701583, -1.346473],
   },
 };
 
