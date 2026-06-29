@@ -61,6 +61,93 @@ let disconnectGrace: ReturnType<typeof setTimeout> | null = null;
 const DISCONNECT_GRACE_MS = 4000;
 const MAX_QUEUE = 64; // cap unsent messages so an extended outage can't grow it unbounded
 
+// Client-side liveness watchdog. The browser does not reliably fire `onclose`
+// for a half-open socket (laptop sleep/wake, Wi-Fi<->cellular handoff, a proxy
+// dropping the path): readyState stays OPEN, so bot-move broadcasts silently
+// stop arriving and a reload is the only way to recover. To catch this, we send
+// an app-level `ping` on a timer and force a reconnect if nothing comes back.
+let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let lastRecv = 0; // timestamp of the last message received on the live socket
+const PING_MS = 15000; // how often we probe (server also pings every 25s)
+const STALE_MS = 40000; // no traffic for this long => assume the socket is dead
+
+function stopHeartbeat(): void {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
+  }
+}
+
+function startHeartbeat(ws: WebSocket): void {
+  stopHeartbeat();
+  lastRecv = Date.now();
+  heartbeatTimer = setInterval(() => {
+    if (socket !== ws || ws.readyState !== WebSocket.OPEN) {
+      stopHeartbeat();
+      return;
+    }
+    if (Date.now() - lastRecv > STALE_MS) {
+      // Silent for too long: the socket is half-open. Close it to trigger
+      // `onclose`, which stops this timer and schedules a reconnect.
+      try {
+        ws.close();
+      } catch {
+        /* already closing */
+      }
+      return;
+    }
+    try {
+      ws.send(JSON.stringify({ t: 'ping' }));
+    } catch {
+      /* socket closing */
+    }
+  }, PING_MS);
+}
+
+// Called when the tab becomes visible or the network comes back. These are the
+// moments a half-open socket is most likely, and the moments the user is most
+// likely watching, so recover fast instead of waiting out the heartbeat.
+function nudge(): void {
+  if (!socket) {
+    // Reconnect now rather than waiting out the backoff.
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnectDelay = 1000;
+    connect();
+    return;
+  }
+  if (socket.readyState === WebSocket.OPEN) {
+    const ws = socket;
+    const sentAt = Date.now();
+    try {
+      ws.send(JSON.stringify({ t: 'ping' }));
+    } catch {
+      /* socket closing */
+    }
+    // If no reply (or any message) arrives shortly, the socket is dead: drop it.
+    setTimeout(() => {
+      if (socket === ws && ws.readyState === WebSocket.OPEN && lastRecv < sentAt) {
+        try {
+          ws.close();
+        } catch {
+          /* already closing */
+        }
+      }
+    }, 3000);
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') nudge();
+  });
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', nudge);
+}
+
 function wsUrl(): string {
   const env = import.meta.env.VITE_WS_URL as string | undefined;
   if (env) return env;
@@ -98,6 +185,7 @@ export function connect(): void {
       disconnectGrace = null;
     }
     reconnectDelay = 1000;
+    startHeartbeat(ws);
     conn.update((s) => ({ ...s, connected: true }));
     // Re-establish identity before anything else: a logged-in session takes
     // precedence; otherwise reclaim the anonymous seat we last held.
@@ -111,6 +199,7 @@ export function connect(): void {
 
   ws.onclose = () => {
     if (socket === ws) socket = null;
+    stopHeartbeat();
     ws.onmessage = null; // detach the handler closure on the dead socket
     // Only show "connecting" if we don't get back within the grace window.
     if (!disconnectGrace) {
@@ -127,12 +216,14 @@ export function connect(): void {
   };
 
   ws.onmessage = (ev) => {
+    lastRecv = Date.now(); // any traffic proves the socket is alive
     let msg: any;
     try {
       msg = JSON.parse(ev.data);
     } catch {
       return;
     }
+    if (msg.t === 'pong') return; // liveness reply; the timestamp above is all we need
     conn.update((s) => {
       switch (msg.t) {
         case 'welcome':

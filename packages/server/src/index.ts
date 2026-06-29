@@ -863,6 +863,12 @@ wss.on('connection', (ws) => {
       authenticate(ws, msg.token);
       return;
     }
+    if (msg.t === 'ping') {
+      // Liveness probe: an immediate reply lets the client detect a half-open
+      // socket (one the browser still reports as OPEN) and force a reconnect.
+      send(ws, { t: 'pong' });
+      return;
+    }
     // Resolve the live identity for this socket (may have changed via resume).
     const c = clients.get(ws);
     if (!c) return;

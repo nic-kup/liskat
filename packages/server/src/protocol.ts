@@ -18,6 +18,7 @@ export type ClientMessage =
   | { t: 'leaveTable' }
   | { t: 'listTables' }
   | { t: 'chat'; text: string }
+  | { t: 'ping' } // client liveness probe; server replies with `pong`
   | { t: 'action'; action: ClientAction };
 
 // The seat is supplied by the server (derived from who you are), so clients
@@ -42,6 +43,7 @@ export type ServerMessage =
   | { t: 'unqueued' } // you left the queue
   | { t: 'queues'; counts: Record<string, number> } // live queue sizes per format
   | { t: 'left' }
+  | { t: 'pong' } // reply to a client `ping`, so the client can detect a dead socket
   | { t: 'error'; msg: string };
 
 export interface LobbyEntry {
