@@ -100,64 +100,89 @@
     return () => clearTimeout(t);
   });
   // The trick we actually render. Normally this mirrors the server's trick, but a
-  // completed (3-card) trick is held on screen for at least MIN_TRICK_HOLD_MS so
-  // it can't flash past when the server sweeps it, e.g. a trick a bot completes,
-  // which (unlike one you play optimistically) only appears once the server sends
-  // it. Released early the moment you play your own next card.
+  // completed (3-card) trick is HELD on the board for MIN_TRICK_HOLD_MS so it can't
+  // flash past when the server sweeps it (the server only reveals it ~500ms before
+  // collecting). The hold is keyed on `trickCount` (which increments on every
+  // collect) and reconstructs the cards from `lastTrick`, so it works even when the
+  // live 3-card state is never observed as its own update -- e.g. the 3-card view
+  // and the swept view arrive coalesced into one reactive tick (a background-tab
+  // throttle, a network burst, or queued messages flushing after a reconnect),
+  // which is exactly when the trick used to vanish on us. Released early the moment
+  // you play your own next card.
   const MIN_TRICK_HOLD_MS = 600;
   let displayTrick = $state<{ slot: number; card: Card }[]>([]);
-  // Hold bookkeeping kept in plain (non-reactive) locals so the effect only ever
-  // *writes* displayTrick; reading it back would make the effect depend on its
-  // own output and loop (a fresh `[]` always compares unequal).
-  let heldFull = false; // is the rendered trick a held, completed (3-card) one?
-  let fullTrickAt = 0; // when the rendered trick reached 3 cards
+  // Hold bookkeeping in plain (non-reactive) locals so the effect only ever *writes*
+  // displayTrick; reading it back would make the effect depend on its own output.
+  let heldCards: { slot: number; card: Card }[] | null = null; // a completed trick pinned on screen
   let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+  let prevTrickCount = -1;
+  let prevDealIndex = -1;
+  const cancelHold = () => {
+    if (releaseTimer) {
+      clearTimeout(releaseTimer);
+      releaseTimer = null;
+    }
+    heldCards = null;
+  };
   $effect(() => {
-    const serverTrick = round?.phase === 'playing' ? round.trick.map((x) => ({ slot: x.slot, card: x.card })) : [];
-    // Mid-play (your optimistic card on the board): mirror the other players'
-    // cards and let the template overlay your pending card. Cancel any hold;
-    // a fresh trick context is active.
+    const r = round;
+    const dealIndex = view?.dealIndex ?? -1;
+    const tc = r?.trickCount ?? 0;
+    const serverTrick = r && r.phase === 'playing' ? r.trick.map((x) => ({ slot: x.slot, card: x.card })) : [];
+    const lastTrick = r ? r.lastTrick.map((x) => ({ slot: x.slot, card: x.card })) : [];
+
+    // New deal: reset all hold bookkeeping (trickCount restarts at 0, so a stale
+    // prevTrickCount from the previous deal must not suppress detection).
+    if (dealIndex !== prevDealIndex) {
+      cancelHold();
+      prevDealIndex = dealIndex;
+      prevTrickCount = tc;
+      displayTrick = serverTrick;
+      return;
+    }
+    // Not in trick play (bidding, declaring, between deals): nothing to pin.
+    if (!r || r.phase !== 'playing') {
+      cancelHold();
+      prevTrickCount = tc;
+      displayTrick = [];
+      return;
+    }
+    // Your optimistic card is on the board: mirror the others and drop any hold so
+    // your move shows instantly (the template overlays your pending card).
     if (pending) {
-      if (releaseTimer) {
-        clearTimeout(releaseTimer);
-        releaseTimer = null;
-      }
-      heldFull = false;
+      cancelHold();
+      prevTrickCount = tc;
       displayTrick = serverTrick;
       return;
     }
-    if (serverTrick.length > 0) {
-      if (releaseTimer) {
-        clearTimeout(releaseTimer);
-        releaseTimer = null;
-      }
-      if (serverTrick.length === 3) {
-        if (!heldFull) {
-          heldFull = true;
-          fullTrickAt = Date.now();
-        }
-      } else {
-        heldFull = false;
-      }
-      displayTrick = serverTrick;
+    // Already pinning a completed trick: keep it until the release timer fires.
+    if (heldCards) {
+      prevTrickCount = tc;
       return;
     }
-    // The server swept the trick. If a full trick has been on screen for less
-    // than the minimum, keep showing it until the hold elapses.
-    if (heldFull) {
-      const remaining = fullTrickAt + MIN_TRICK_HOLD_MS - Date.now();
-      if (remaining > 0) {
-        if (releaseTimer) clearTimeout(releaseTimer);
-        releaseTimer = setTimeout(() => {
-          displayTrick = [];
-          heldFull = false;
-          releaseTimer = null;
-        }, remaining);
-        return;
-      }
-      heldFull = false;
+    // A trick just completed -- either we still see it live (3 cards on the board)
+    // or it was already swept (trickCount advanced) and only survives in lastTrick.
+    // Either way, pin the completed trick for the grace window.
+    let completed: { slot: number; card: Card }[] | null = null;
+    if (serverTrick.length === 3) completed = serverTrick;
+    else if (tc > prevTrickCount && lastTrick.length === 3) completed = lastTrick;
+    prevTrickCount = tc;
+
+    if (completed) {
+      heldCards = completed;
+      displayTrick = completed;
+      releaseTimer = setTimeout(() => {
+        releaseTimer = null;
+        heldCards = null;
+        // Snap to whatever the table shows now: the swept board, or the first card
+        // of the next trick if a bot has already led.
+        const cur = round && round.phase === 'playing' ? round.trick.map((x) => ({ slot: x.slot, card: x.card })) : [];
+        displayTrick = cur;
+        prevTrickCount = round?.trickCount ?? prevTrickCount;
+      }, MIN_TRICK_HOLD_MS);
+      return;
     }
-    displayTrick = [];
+    displayTrick = serverTrick;
   });
   // Clear a pending trick-release timer if the table is torn down mid-hold (e.g.
   // leaving the game) so it can't fire after the component is gone.
