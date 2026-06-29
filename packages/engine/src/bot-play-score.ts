@@ -46,6 +46,14 @@ export interface PlayWeights {
   grandDef?: number[];
   nullDecl: number[];
   nullDef: number[];
+  // Optional PER-SEAT suit-defender vectors. The two defenders sit in structurally
+  // different spots: "before" = just before the declarer (declarer+2, wants the lead
+  // to sandwich the declarer in middle-hand), "after" = just after (declarer+1, plays
+  // second-hand behind the declarer). A single suitDef forces both to play identically;
+  // these let each seat specialise. Selected by seat in chooseCardScored; ABSENT -> both
+  // fall back to suitDef (so omitting them reproduces the shared-vector behaviour exactly).
+  suitDefBefore?: number[]; // suit defender sitting just before the declarer (declarer+2)
+  suitDefAfter?: number[]; // suit defender sitting just after the declarer (declarer+1)
   // Learnable skat discard (optional). The two buried cards become the skat, which
   // COUNTS for the declarer, so the discard trades banked points, trump economy, and
   // creating a ruffing void. Scored over candidate PAIRS (see chooseDiscardScored).
@@ -199,6 +207,14 @@ interface Ctx {
   oppTrumpsOut: number;
   friendWinning: boolean; // the current trick winner is my ally (defender's partner)
   oppWinning: boolean; // the current trick winner is an opponent
+  // Defender seat position relative to the declarer (false for the declarer itself).
+  // "Good" = I sit just BEFORE the declarer (seat declarer+2): when I lead, the
+  // declarer is forced into middle-hand and my partner gets last say. "Bad" = I sit
+  // just AFTER the declarer (seat declarer+1): when I lead, the declarer plays in
+  // rear-hand (sees everything). Used to pick the per-seat suit-defender weight
+  // vector (suitDefBefore/suitDefAfter) in chooseCardScored.
+  defPosGood: boolean; // I am the defender just before the declarer (declarer+2)
+  defPosBad: boolean; // I am the defender just after the declarer (declarer+1)
   myBanked: number; // points my side has already secured this deal
   myGoal: number; // points my side needs to win the card play (declarer 61, defenders 60)
   trickCount: number; // tricks already collected this deal (0..9), for endgame/tempo scaling
@@ -227,6 +243,14 @@ function buildCtx(s: RoundState, seat: Seat): Ctx {
     else friendWinning = true; // the other defender (our partner) leads the trick
   }
 
+  // Where I sit relative to the declarer (defenders only).
+  let defPosGood = false;
+  let defPosBad = false;
+  if (!iAmDeclarer && s.declarer !== null) {
+    defPosGood = seat === (((s.declarer + 2) % 3) as Seat); // just before the declarer
+    defPosBad = seat === (((s.declarer + 1) % 3) as Seat); // just after the declarer
+  }
+
   // Seats that still act after me this trick.
   const played = new Set(s.trick.map((t) => t.seat));
   const waiting: Seat[] = [];
@@ -251,6 +275,7 @@ function buildCtx(s: RoundState, seat: Seat): Ctx {
     contract, hand, mem, trickCards, empty, isLast, led,
     trickValue: trickCards.reduce((a, c) => a + cardPoints(c), 0),
     iAmDeclarer, declarer: s.declarer, waitingOpps, waitingPartners, oppTrumpsOut, friendWinning, oppWinning,
+    defPosGood, defPosBad,
     myBanked, myGoal, trickCount: s.trickCount,
   };
 }
@@ -393,7 +418,11 @@ export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: Pl
   let weights: number[];
   if (isNull) weights = ctx.iAmDeclarer ? w.nullDecl : w.nullDef;
   else if (isGrand) weights = ctx.iAmDeclarer ? (w.grandDecl ?? w.suitDecl) : (w.grandDef ?? w.suitDef);
-  else weights = ctx.iAmDeclarer ? w.suitDecl : w.suitDef;
+  else if (ctx.iAmDeclarer) weights = w.suitDecl;
+  // Suit defender: pick the per-seat vector for my position relative to the declarer,
+  // falling back to the shared suitDef when the split vectors aren't set.
+  else if (ctx.defPosGood) weights = w.suitDefBefore ?? w.suitDef;
+  else weights = w.suitDefAfter ?? w.suitDef; // defPosBad (or, defensively, neither)
   const feats = isNull ? nullFeatures : suitFeatures;
 
   let best = legal[0];
