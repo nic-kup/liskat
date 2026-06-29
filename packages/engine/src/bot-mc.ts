@@ -66,7 +66,7 @@ function active(r: RoundState): Seat | null {
 // One determinized playout: seat 0 declares `contract`, scored play for all seats.
 // Returns whether the declarer won AND the realized game value (schneider/schwarz baked
 // in), so the EV can account for win/loss MAGNITUDE, not just win rate.
-function playoutResult(d: Deal, contract: Contract, params: BotParams): { won: boolean; value: number } {
+function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = false): { won: boolean; value: number } {
   let r = createRound(d);
   let guard = 0;
   const step = (seat: Seat): Action | null => {
@@ -78,7 +78,9 @@ function playoutResult(d: Deal, contract: Contract, params: BotParams): { won: b
       return { type: 'bid', seat: 0, value: 18 };
     }
     if (r.phase === 'declaring') {
-      if (r.declareStep === 'choose') return { type: 'takeSkat', seat: 0 };
+      // hand=true plays the deal CLOSED (declines the skat): the round skips the discard
+      // step and the skat (still scored for the declarer) is never seen. Otherwise take it.
+      if (r.declareStep === 'choose') return hand ? { type: 'playHand', seat: 0 } : { type: 'takeSkat', seat: 0 };
       if (r.declareStep === 'discard') {
         const scored = params.mcScoredDiscard && params.playW ? chooseDiscardScored(r.hands[0], contract, params.playW) : null;
         return { type: 'discard', seat: 0, cards: scored ?? discardFor(r.hands[0], contract) };
@@ -106,11 +108,12 @@ function playoutWin(d: Deal, contract: Contract, params: BotParams): boolean {
   return playoutResult(d, contract, params).won;
 }
 
-interface PosGame { contract: Contract; value: number; ev: number }
-// contract = best-EV game; ceiling = its value (old behaviour: bid up to the best game);
-// ceilingAny = highest value among ALL +EV games (bid up to the most valuable +EV game,
-// since the bot is willing to PLAY any +EV game); posGames = every +EV game.
-interface McResult { contract: Contract; ceiling: number; ceilingAny: number; ev: number; posGames: PosGame[] }
+interface PosGame { contract: Contract; value: number; ev: number; hand: boolean }
+// contract = best-EV game; hand = whether that best game is played CLOSED (no skat);
+// ceiling = its value (old behaviour: bid up to the best game); ceilingAny = highest value
+// among ALL +EV games (bid up to the most valuable +EV game, since the bot is willing to
+// PLAY any +EV game); posGames = every +EV game (hand games included when mcHandGame is on).
+interface McResult { contract: Contract; hand: boolean; ceiling: number; ceilingAny: number; ev: number; posGames: PosGame[] }
 const memo = new Map<string, McResult>();
 
 // Estimate the best contract for a 10-card hand by simulated EV. EV (session points)
@@ -126,29 +129,39 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
   const known = new Set(hand0.map(cardId));
   const rest = DECK.filter((c) => !known.has(cardId(c)));
   let bestContract: Contract = CONTRACTS[0];
+  let bestHand = false;
   let bestEv = -Infinity;
   let bestValue = 0;
   let ceilingAny = 0;
   const posGames: PosGame[] = [];
+  // mcHandGame: also evaluate playing each game CLOSED (hand). A hand game is just another
+  // candidate -- it forgoes improving the hand with the skat but earns +1 multiplier, so it
+  // wins the EV comparison only when the 10 cards are strong enough on their own. Off -> only
+  // skat games (current behaviour exactly).
+  const variants: boolean[] = params.mcHandGame ? [false, true] : [false];
+  const valueOf = (c: Contract, h: boolean) =>
+    c.type === 'null' ? previewGameValue(c, 0, h ? { hand: true } : {}) : previewGameValue(c, countMatadors(hand0, c), h ? { hand: true } : {});
   for (const contract of CONTRACTS) {
-    let won = 0;
-    let scoreSum = 0;
-    for (let k = 0; k < K; k++) {
-      const sh = shuffle(rest, rnd);
-      const deal: Deal = { hands: [hand0.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sh.slice(20, 22) as [Card, Card] };
-      const res = playoutResult(deal, contract, params);
-      if (res.won) won++;
-      scoreSum += res.won ? res.value : -2 * res.value;
+    for (const isHand of variants) {
+      let won = 0;
+      let scoreSum = 0;
+      for (let k = 0; k < K; k++) {
+        const sh = shuffle(rest, rnd);
+        const deal: Deal = { hands: [hand0.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sh.slice(20, 22) as [Card, Card] };
+        const res = playoutResult(deal, contract, params, isHand);
+        if (res.won) won++;
+        scoreSum += res.won ? res.value : -2 * res.value;
+      }
+      const p = won / K;
+      const value = valueOf(contract, isHand);
+      // mcRichEV: mean realized signed value (schneider/schwarz included) instead of the
+      // base-value win/loss EV. The ceiling stays at base value (the bid can't exceed it).
+      const ev = params.mcRichEV ? scoreSum / K : p * value - (1 - p) * 2 * value;
+      if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; bestHand = isHand; }
+      if (ev > 0) { posGames.push({ contract, value, ev, hand: isHand }); if (value > ceilingAny) ceilingAny = value; }
     }
-    const p = won / K;
-    const value = contract.type === 'null' ? previewGameValue(contract, 0, {}) : previewGameValue(contract, countMatadors(hand0, contract), {});
-    // mcRichEV: mean realized signed value (schneider/schwarz included) instead of the
-    // base-value win/loss EV. The ceiling stays at base value (the bid can't exceed it).
-    const ev = params.mcRichEV ? scoreSum / K : p * value - (1 - p) * 2 * value;
-    if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; }
-    if (ev > 0) { posGames.push({ contract, value, ev }); if (value > ceilingAny) ceilingAny = value; }
   }
-  const result: McResult = { contract: bestContract, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
+  const result: McResult = { contract: bestContract, hand: bestHand, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
   if (cache) { if (memo.size > 4096) memo.clear(); memo.set(key, result); }
   return result;
 }
@@ -191,9 +204,10 @@ export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PAR
     const value = contract.type === 'null' ? previewGameValue(contract, 0, {}) : previewGameValue(contract, countMatadors(hand12, contract), {});
     const ev = params.mcRichEV ? scoreSum / K : p * value - (1 - p) * 2 * value;
     if (ev > bestEv) { bestEv = ev; bestContract = contract; bestValue = value; }
-    if (ev > 0) { posGames.push({ contract, value, ev }); if (value > ceilingAny) ceilingAny = value; }
+    if (ev > 0) { posGames.push({ contract, value, ev, hand: false }); if (value > ceilingAny) ceilingAny = value; }
   }
-  const result: McResult = { contract: bestContract, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
+  // hand:false throughout -- once the skat is taken, a closed hand game is no longer possible.
+  const result: McResult = { contract: bestContract, hand: false, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
   if (cache) { if (memo12.size > 4096) memo12.clear(); memo12.set(key, result); }
   return result;
 }
@@ -214,13 +228,50 @@ export function mcBidAction(s: RoundState, seat: Seat, p: BotParams): Action {
   return { type: 'pass', seat };
 }
 
-// Declaring: always take the skat, then declare the simulated best contract (with a
-// guard so we never declare a contract worth less than the won bid), discarding for it.
+// The best +EV game that still covers the won bid, hand variants included. Mirrors the
+// ceilingAny bidding logic so the declare matches what the auction committed to.
+function bestCoveringPlan(ev: McResult, bid: number, hand10: Card[], anyEV: boolean): { contract: Contract; hand: boolean } {
+  const gv = (c: Contract, h: boolean) =>
+    c.type === 'null' ? previewGameValue(c, 0, h ? { hand: true } : {}) : previewGameValue(c, countMatadors(hand10, c), h ? { hand: true } : {});
+  if (anyEV) {
+    const covering = ev.posGames.filter((g) => gv(g.contract, g.hand) >= bid).sort((a, b) => b.ev - a.ev);
+    if (covering.length) return { contract: covering[0].contract, hand: covering[0].hand };
+  }
+  return { contract: ev.contract, hand: ev.hand };
+}
+
+// Declaring. With mcHandGame, the 'choose' step compares the best skat-game EV against the
+// best hand-game EV (both from the 10-card estimate) and plays the closed hand only when it
+// wins -- so the bot bids/plays hand exactly when it's the most profitable +EV game, never to
+// reach for a multiplier it can't make. Without the flag it always takes the skat (unchanged).
 export function mcDeclareAction(s: RoundState, seat: Seat, p: BotParams): Action | null {
-  if (s.declareStep === 'choose') return { type: 'takeSkat', seat };
-  // hand is now 12 cards (original 10 ++ skat); slice(0,10) recovers the bid-time hand,
-  // so the contract matches what the auction ceiling was based on.
   const hand = s.hands[seat];
+
+  if (s.declareStep === 'choose') {
+    if (!p.mcHandGame) return { type: 'takeSkat', seat };
+    const plan = bestCoveringPlan(mcEvaluateHand(hand, p), s.bid, hand, !!p.mcAnyPositiveEV);
+    return plan.hand ? { type: 'playHand', seat } : { type: 'takeSkat', seat };
+  }
+
+  // Hand game (we declined the skat at 'choose'): declare the best covering CLOSED game.
+  if (!s.tookSkat) {
+    const ev = mcEvaluateHand(hand, p);
+    const gvh = (c: Contract) => (c.type === 'null' ? previewGameValue(c, 0, { hand: true }) : previewGameValue(c, countMatadors(hand, c), { hand: true }));
+    let contract = bestCoveringPlan(ev, s.bid, hand, !!p.mcAnyPositiveEV).contract;
+    if (gvh(contract) < s.bid) {
+      // Must still cover the bid as a hand game: take the cheapest covering closed game.
+      let bestCover: { c: Contract; v: number } | null = null;
+      for (const c of [{ type: 'grand' } as Contract, ...SUITS.map((su) => ({ type: 'suit', suit: su }) as Contract)]) {
+        const v = gvh(c);
+        if (v >= s.bid && (!bestCover || v < bestCover.v)) bestCover = { c, v };
+      }
+      if (bestCover) contract = bestCover.c;
+    }
+    return { type: 'declareContract', seat, contract };
+  }
+
+  // Skat game: hand is now 12 cards (original 10 ++ skat); slice(0,10) recovers the bid-time
+  // hand, so the contract matches what the auction ceiling was based on.
   const orig = hand.length > 10 ? hand.slice(0, 10) : hand;
   // mcPostSkat: re-evaluate with the actual 12 cards (the skat may have changed the best
   // game); otherwise use the bid-time 10-card estimate.

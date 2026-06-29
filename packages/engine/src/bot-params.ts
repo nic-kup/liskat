@@ -129,6 +129,14 @@ export interface BotParams {
   // schneider, and losses that get schneidered against. The bid ceiling stays at base
   // value. 0/undefined keeps the base-value EV.
   mcRichEV?: number;
+
+  // --- When > 0, the MC bidder treats a closed HAND game (declining the skat for +1
+  // multiplier) as just another candidate alongside the skat games: it estimates the hand
+  // game's EV from the 10-card hand and plays it only when that EV beats every skat game.
+  // Because only +EV candidates lift the ceiling, the bot bids up to a hand value only when
+  // the hand game is genuinely makeable -- it never overbids reaching for the multiplier.
+  // 0/undefined -> always take the skat (hand games off).
+  mcHandGame?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -246,6 +254,17 @@ export const DEFAULT_PARAMS: BotParams = {
   // just win rate. +0.53 pts/deal, paired MC A/B across three seeds (+0.39/+0.43/+0.77);
   // bid volume barely moves, so the gain is purely better game choice.
   mcRichEV: 1,
+
+  // Treat a closed HAND game (decline the skat for +1 multiplier) as just another candidate
+  // in the MC EV comparison: estimate its EV from the 10-card hand and play it only when it
+  // beats every skat game. Because only +EV candidates lift the bid ceiling, the bot bids up
+  // to a hand value only when the hand game is genuinely makeable -- it never overbids for the
+  // multiplier. Paired MC A/B (full bidder, on vs off): +0.28 pts/deal (an earlier small run
+  // read +1.16; the larger run firmed it down), 83-84% win rate on the hand games it plays, so
+  // not overbidding. ~34% of declarations become hand games in self-play -- a big behavioural
+  // shift; self-play likely over-rewards it since bot defenders punish a closed hand less than
+  // a human would, so the real-game value may be smaller. Was hardcoded off (always take skat).
+  mcHandGame: 1,
 
   scorePlay: 1,
   // Play weights. DECLARER (suitDecl, grandDecl) and the discard (discSuit, discNull) were
