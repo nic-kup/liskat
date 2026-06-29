@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable, addBot } from './ws.ts';
-  import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue } from '@liskat/engine';
+  import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue, leadSuit } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
   import SuitPip from './SuitPip.svelte';
@@ -332,6 +332,20 @@
 
   function legalNow(card: Card): boolean {
     return !!round?.legal.some((c) => cardId(c) === cardId(card));
+  }
+
+  // Whether `card` is legal to FOLLOW the current trick, computed from the led suit
+  // alone (Skat's follow rule depends only on the lead). This lets non-followable cards
+  // grey out the instant another player leads -- before it's our turn, when the server
+  // hasn't sent our `legal` list yet (it only populates that on our turn). On our turn it
+  // agrees with `legalNow` exactly. Leading or a complete trick imposes no constraint.
+  function followLegal(card: Card): boolean {
+    if (!round || round.phase !== 'playing' || !round.contract) return true;
+    const trick = round.trick;
+    if (trick.length === 0 || trick.length >= 3) return true;
+    const led = leadSuit(trick[0].card, round.contract);
+    const haveFollow = round.yourHand.some((c) => leadSuit(c, round.contract!) === led);
+    return !haveFollow || leadSuit(card, round.contract) === led;
   }
 
   function nextBids(): number[] {
@@ -873,7 +887,7 @@
           {#each hand as card (cardId(card))}
             {@const selectable = round?.phase === 'declaring' && round.declareStep === 'discard'}
             {@const playable = round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)}
-            {@const premovable = round?.phase === 'playing' && !isMyTurn()}
+            {@const premovable = round?.phase === 'playing' && !isMyTurn() && followLegal(card)}
             {@const isPremove = !!premove && cardId(premove) === cardId(card)}
             {@const dragHere = $settings.dragToPlay && round?.phase === 'playing'}
             <!-- The wrapper only carries the drag gesture; the actual control is
@@ -890,7 +904,7 @@
                 {card}
                 fill
                 selected={selected.includes(cardId(card))}
-                dim={isPremove || (round?.phase === 'playing' && isMyTurn() && !pending && !legalNow(card))}
+                dim={isPremove || (round?.phase === 'playing' && !pending && !followLegal(card))}
                 onclick={selectable || ((playable || premovable) && !$settings.dragToPlay) ? () => onCardClick(card) : undefined}
               />
             </div>
