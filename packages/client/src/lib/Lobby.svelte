@@ -173,8 +173,11 @@
   }
   .lobby {
     max-width: 560px;
-    margin: 12vh auto 0;
-    padding: 24px;
+    /* Offset with padding, not a top margin: a margin here collapses up through
+       <main>/#app/<body> to the root and ADDS to body's min-height:100vh, forcing
+       a ~12vh scroll even when everything fits. Padding stays inside the box. */
+    margin: 0 auto;
+    padding: 12vh 24px 24px;
   }
   h2 {
     font-size: 16px;
