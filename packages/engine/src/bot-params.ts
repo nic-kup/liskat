@@ -137,6 +137,13 @@ export interface BotParams {
   // the hand game is genuinely makeable -- it never overbids reaching for the multiplier.
   // 0/undefined -> always take the skat (hand games off).
   mcHandGame?: number;
+
+  // --- When > 0 (requires mcHandGame), a closed hand game also evaluates announcing schneider
+  // and schwarz, REUSING the same rollouts (no extra sims): each rollout's realized schneider/
+  // schwarz outcome is tallied and the announcement with the best mean signed value is declared.
+  // Conservative -- game selection still ranks on the non-announced EV, and announcing only when
+  // even win-focused rollouts deliver it often. 0/undefined -> never announce.
+  mcAnnounce?: number;
 }
 
 // Tuned by self-play evolution (experiments/, gitignored): 300 bots, tables of 3,
@@ -266,6 +273,12 @@ export const DEFAULT_PARAMS: BotParams = {
   // a human would, so the real-game value may be smaller. Was hardcoded off (always take skat).
   mcHandGame: 1,
 
+  // Announce schneider/schwarz on a hand game when the same rollouts judge it the best EV.
+  // Paired MC A/B vs off: +0.047 pts/deal (neutral, within noise); fires rarely (~0.7% of
+  // declarations) and won every announced game in the sample (4/4) -- a conservative, low-risk
+  // capability rather than a points source. Reuses the hand-game rollouts (no extra sims).
+  mcAnnounce: 1,
+
   scorePlay: 1,
   // Play weights. DECLARER (suitDecl, grandDecl) and the discard (discSuit, discNull) were
   // RE-LEARNED by GA search on the real-game arena (experiments/train-relearn.ts: lone scored
@@ -292,6 +305,12 @@ export const DEFAULT_PARAMS: BotParams = {
     suitDefAfter: [-1.536555, -5.340962, -3.561946, 0.562318, 2.111379, 1.029225, -3.363873, 3.045146, 4.611165, 0.0314, -2.444869, -0.130063, 3.124972, 1.471018, -1.209487, 4.092023, -3.221664, 3.546189, -4.071049, 0.153609, -1.832771, 2.380737, 0.758947, -0.119783, -1.534457, 1.28647, -3.320998, -0.051506, 0.570121, 0.413947, 0.309014, -2.070785, -5.94728, -4.756048],
     grandDecl: [1.645909, -2.483149, -4.936745, 4.987506, 1.242564, 0.896389, 4.039699, 1.300281, 0.391092, 2.041361, -2.760466, 1.374567, -0.0314, 1.452362, -0.484694, -2.204918, -0.343821, 3.886154, -4.627031, 1.649609, -1.321752, 2.514468, -1.557942, 0.415492, -0.519832, 0.451429, -0.548377, 0.169945, -0.086565, 0, -0.218796, -1.206072, 0, 0],
     grandDef: [0.487751, -2.929059, -4.843112, 0.045809, 3.734863, 1.758428, -0.393533, 2.356083, 3.496064, 1.72923, -2.521181, -0.76086, 3.451897, 2.18019, -2.193521, 4.296792, -1.873368, 1.763556, -3.16899, 1.072616, 0.321555, 2.853362, 0.191685, -0.28744, -1.860952, 1.716749, -3.150405, 0, 0, 0, 0, -2.5, -6, -6],
+    // PER-SEAT GRAND defenders (GA search, experiments/train-defseat-grand.ts -- same
+    // defender-pair arena, suit defenders frozen). Out-of-sample: +0.524 def-pts/deal pair
+    // (mostly the after-seat) and +0.179 pts/defended-game solo, no regression. Selected by
+    // seat in chooseCardScored; grandDef -> suitDef remains the fallback when absent.
+    grandDefBefore: [1.005628, -2.921422, -5.809566, -1.530458, 1.726516, 0.869575, 0.16158, 3.929011, 3.365928, 2.460164, -3.788555, 0.715282, 4.127682, 1.076829, -2.517215, 4.126264, -0.362159, 0.964999, -4.762175, 0.596416, -0.449427, 1.090677, -0.34725, 1.20096, -1.541022, 3.201657, -2.046321, -1.444422, 0.76587, -0.319015, 0.317684, -2.117133, -3.595301, -4.713769],
+    grandDefAfter: [-0.459003, -3.22455, -4.091614, -0.398831, 2.483113, 0.587633, -0.429594, 3.584728, 2.824764, 1.27944, -2.558825, -0.145025, 2.924367, 1.481008, -2.451887, 2.624487, -0.960045, 1.847016, -3.579404, 3.746974, -0.493055, 4.193719, 0.561519, 0.772557, -1.676068, 2.77946, -3.410146, 0.229589, -1.685514, -1.429614, -0.408149, -1.928722, -5.171424, -6],
     nullDecl: [-1.670991, 3.95427, -0.443455, -3.641406, -0.766451, 1.166043, -1.716698],
     nullDef: [-0.152611, -4.254485, -3.534734, -2.60709, 3.369348, -0.969604, -2.879463],
     discSuit: [-0.133363, -4.291359, -5.21138, 0.238447, 1.228396, 0.88801],

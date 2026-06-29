@@ -54,6 +54,8 @@ export interface PlayWeights {
   // fall back to suitDef (so omitting them reproduces the shared-vector behaviour exactly).
   suitDefBefore?: number[]; // suit defender sitting just before the declarer (declarer+2)
   suitDefAfter?: number[]; // suit defender sitting just after the declarer (declarer+1)
+  grandDefBefore?: number[]; // grand defender just before the declarer (else grandDef -> suitDef)
+  grandDefAfter?: number[]; // grand defender just after the declarer (else grandDef -> suitDef)
   // Learnable skat discard (optional). The two buried cards become the skat, which
   // COUNTS for the declarer, so the discard trades banked points, trump economy, and
   // creating a ruffing void. Scored over candidate PAIRS (see chooseDiscardScored).
@@ -417,12 +419,15 @@ export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: Pl
   const isGrand = ctx.contract.type === 'grand';
   let weights: number[];
   if (isNull) weights = ctx.iAmDeclarer ? w.nullDecl : w.nullDef;
-  else if (isGrand) weights = ctx.iAmDeclarer ? (w.grandDecl ?? w.suitDecl) : (w.grandDef ?? w.suitDef);
-  else if (ctx.iAmDeclarer) weights = w.suitDecl;
-  // Suit defender: pick the per-seat vector for my position relative to the declarer,
-  // falling back to the shared suitDef when the split vectors aren't set.
-  else if (ctx.defPosGood) weights = w.suitDefBefore ?? w.suitDef;
-  else weights = w.suitDefAfter ?? w.suitDef; // defPosBad (or, defensively, neither)
+  else if (ctx.iAmDeclarer) weights = isGrand ? (w.grandDecl ?? w.suitDecl) : w.suitDecl;
+  else {
+    // Suit/grand DEFENDER: pick the per-seat vector for my position relative to the
+    // declarer (before/after), falling back through the shared grand/suit vectors when a
+    // split vector isn't set -- so omitting them reproduces the shared-vector behaviour.
+    const before = isGrand ? (w.grandDefBefore ?? w.grandDef ?? w.suitDef) : (w.suitDefBefore ?? w.suitDef);
+    const after = isGrand ? (w.grandDefAfter ?? w.grandDef ?? w.suitDef) : (w.suitDefAfter ?? w.suitDef);
+    weights = ctx.defPosGood ? before : after; // defPosBad (or, defensively, neither) -> after
+  }
   const feats = isNull ? nullFeatures : suitFeatures;
 
   let best = legal[0];
