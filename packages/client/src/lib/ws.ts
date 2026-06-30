@@ -429,9 +429,10 @@ export function quickMatch(format?: MatchFormat): void {
   send({ t: 'quickMatch', format });
 }
 
-// Start a solo practice game against two bots (unrated, no queue).
-export function practiceMatch(format?: MatchFormat): void {
-  send({ t: 'practiceMatch', format });
+// Start a solo practice game against two bots (unrated, no queue). With tutorial=true the
+// game is untimed and the server attaches coaching hints to your view (the how-to tutorial).
+export function practiceMatch(format?: MatchFormat, tutorial = false): void {
+  send({ t: 'practiceMatch', format, tutorial });
 }
 
 export function cancelMatch(): void {

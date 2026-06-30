@@ -172,9 +172,10 @@ function freshBotName(table: Table): string {
 // Creates an unlisted, never-rated table seated with two heuristic bots, then
 // runs `seat` to add the human (last, so the match auto-starts at three seated).
 // Auto-removed if nobody joins within a couple of minutes.
-function createBotTable(format: MatchFormat, seat: (t: Table) => void): Table {
+function createBotTable(format: MatchFormat, seat: (t: Table) => void, tutorial = false): Table {
   const table = lobby.create('private', format);
-  table.timed = true;
+  table.tutorial = tutorial;
+  table.timed = !tutorial; // a coached tutorial game runs with no move clock
   // table.rated stays false; bot games never count toward Elo or history.
   bindTable(table);
   const [a, b] = pickBotNames();
@@ -195,11 +196,11 @@ function createTestGame(): Table {
 }
 
 // Practice game: seats the requesting player immediately against two bots.
-function startPracticeGame(client: Client, format: MatchFormat): void {
+function startPracticeGame(client: Client, format: MatchFormat, tutorial = false): void {
   if (client.tableId) leaveTable(client);
   const table = createBotTable(format, (t) => {
     if (t.addPlayer(client.id, client.nick)) client.tableId = t.id;
-  });
+  }, tutorial);
   broadcastTable(table);
 }
 
@@ -411,7 +412,7 @@ function handle(client: Client, msg: ClientMessage): void {
 
     case 'practiceMatch':
       matchmaker.dequeue(client.id); // a practice game supersedes any pending search
-      startPracticeGame(client, msg.format ?? PRACTICE_FORMAT);
+      startPracticeGame(client, msg.format ?? PRACTICE_FORMAT, msg.tutorial ?? false);
       return;
 
     case 'addBot': {

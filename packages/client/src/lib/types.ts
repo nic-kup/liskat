@@ -30,6 +30,20 @@ export interface HistoryEntry {
   scores: number[];
 }
 
+// Tutorial-only per-turn hint data the server attaches to the learner's round view.
+export interface CoachView {
+  bidCeil?: number;
+  bidContractKey?: string;
+  takeSkat?: boolean;
+  discardIds?: string[];
+  contractKey?: string;
+  bestCards?: { id: string; feature: string }[];
+  onlyOption?: boolean;
+  eyesDeclarer?: number;
+  eyesDefenders?: number;
+  trumpsOut?: number;
+}
+
 export interface RoundView {
   phase: 'bidding' | 'declaring' | 'playing' | 'finished';
   bidding?: { awaiting: string; askerSlot: number; responderSlot: number | null; currentBid: number; lastBidderSlot: number | null; lastActions: ({ kind: 'bid' | 'hold' | 'pass'; value?: number } | null)[] };
@@ -55,6 +69,7 @@ export interface RoundView {
   skatDealt: [Card, Card] | null;
   banks: number[];
   turnRemainingMs: number | null;
+  coach?: CoachView;
 }
 
 export interface TableView {
@@ -63,6 +78,7 @@ export interface TableView {
   format: MatchFormat;
   status: 'waiting' | 'playing' | 'between' | 'over';
   timed: boolean;
+  tutorial: boolean;
   rated: boolean;
   ranked: boolean;
   dealIndex: number;

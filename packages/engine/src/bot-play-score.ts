@@ -415,10 +415,10 @@ function dot(f: number[], w: number[]): number {
   return s;
 }
 
-// Linear score of every legal card with the role's weight vector, in `legal` order.
-// Factored out so both the argmax chooser and the softmax sampler score identically.
-export function scoreCardsScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): number[] {
-  const ctx = buildCtx(s, seat);
+// Pick the role's weight vector + the matching feature builder/names for this decision.
+// Shared by scoreCardsScored (the bot's play) and explainCardsScored (the tutorial hints)
+// so an explanation always decomposes the SAME score the bot actually plays on.
+function playModel(ctx: Ctx, w: PlayWeights): { weights: number[]; feats: (c: Card, ctx: Ctx) => number[]; names: readonly string[] } {
   const isNull = ctx.contract.type === 'null';
   const isGrand = ctx.contract.type === 'grand';
   let weights: number[];
@@ -432,8 +432,44 @@ export function scoreCardsScored(s: RoundState, seat: Seat, legal: Card[], w: Pl
     const after = isGrand ? (w.grandDefAfter ?? w.grandDef ?? w.suitDef) : (w.suitDefAfter ?? w.suitDef);
     weights = ctx.defPosGood ? before : after; // defPosBad (or, defensively, neither) -> after
   }
-  const feats = isNull ? nullFeatures : suitFeatures;
+  return isNull ? { weights, feats: nullFeatures, names: NULL_FEATURES } : { weights, feats: suitFeatures, names: SUIT_FEATURES };
+}
+
+// Linear score of every legal card with the role's weight vector, in `legal` order.
+// Factored out so both the argmax chooser and the softmax sampler score identically.
+export function scoreCardsScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): number[] {
+  const ctx = buildCtx(s, seat);
+  const { weights, feats } = playModel(ctx, w);
   return legal.map((c) => dot(feats(c, ctx), weights));
+}
+
+// One feature's signed push on a card's score: contribution = value * weight. The features
+// are named (SUIT_FEATURES / NULL_FEATURES) and documented, so a large positive contribution
+// is a human-readable reason the card scores well.
+export interface CardContribution {
+  feature: string;
+  value: number; // the per-card feature value in this situation
+  weight: number; // the learned weight on that feature for this role
+  contribution: number; // value * weight (the term's signed effect on the score)
+}
+export interface CardExplanation {
+  score: number; // total linear score (matches scoreCardsScored)
+  contributions: CardContribution[]; // every feature term, sorted by |contribution| descending
+}
+
+// Decompose each legal card's score into its per-feature contributions, so a UI can show
+// WHY the model likes (or dislikes) a card -- e.g. the tutorial "best play" thought-bubble.
+// Pure and side-effect free; uses the exact same weights/features the bot plays with.
+export function explainCardsScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): CardExplanation[] {
+  const ctx = buildCtx(s, seat);
+  const { weights, feats, names } = playModel(ctx, w);
+  return legal.map((c) => {
+    const f = feats(c, ctx);
+    const contributions: CardContribution[] = f.map((value, i) => ({ feature: names[i], value, weight: weights[i] ?? 0, contribution: value * (weights[i] ?? 0) }));
+    const score = contributions.reduce((a, b) => a + b.contribution, 0);
+    contributions.sort((a, b) => Math.abs(b.contribution) - Math.abs(a.contribution));
+    return { score, contributions };
+  });
 }
 
 // Choose a card from `legal` by linear scoring with the role's weight vector.

@@ -2,6 +2,7 @@
   import { page } from './ui.ts';
   import { previewGameValue, SUIT_BASE, GRAND_BASE, type Contract } from '@liskat/engine';
   import SuitPip from './SuitPip.svelte';
+  import { practiceMatch } from './ws.ts';
 
   // Card faces are served from /cards/french/<ID>.svg.
   const EYES = [
@@ -365,6 +366,14 @@
   <section>
     <h2>5. A match</h2>
     <p>A match is several deals with the deal rotating each time, so everyone takes a turn in each seat. Scores add up across the deals. You can play a set number of deals (6, 12 or 36) or race to a target score (250 or 1000).</p>
+  </section>
+
+  <section>
+    <h2>6. Tutorial match</h2>
+    <p>Now try a real deal yourself, against two bots, with a coach reading over your shoulder. It's the normal game — just untimed, and with hints: it suggests how high to bid, which cards to bury and which game to call, then while you play it highlights the strongest cards (hover one to see why) and shows the eyes won and trumps still out. Pure practice — it never affects your rating.</p>
+    <div class="cta">
+      <button class="primary" onclick={() => practiceMatch({ kind: 'deals', deals: 3 }, true)}>Start a coached practice game</button>
+    </div>
   </section>
 
   <div class="cta">

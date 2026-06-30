@@ -21,6 +21,7 @@ import {
 } from '@liskat/engine';
 import type { ClientAction } from './protocol.ts';
 import type { DealReplay } from './history.ts';
+import { computeCoach, type CoachView } from './coach.ts';
 
 const BETWEEN_DEALS_MS = 6000;
 const TRICK_REVEAL_MS = 500; // how long a completed trick stays on the table before it is swept
@@ -77,6 +78,9 @@ export class Table {
   // move clock runs (off can be chosen for private games).
   rated = false;
   timed = true;
+  // Tutorial (coached practice) table: untimed, and the server attaches per-turn hint data
+  // (the CoachView) to the human's round view. Never rated; only set on practice tables.
+  tutorial = false;
 
   // Full replay of the match (one entry per deal), built up as play proceeds.
   private dealReplays: DealReplay[] = [];
@@ -575,6 +579,8 @@ export class Table {
         banks: this.timeBank.slice(),
         turnRemainingMs: this.turnRemainingMs(),
       };
+      // Tutorial coach: attach the learner's hint data while a deal is in progress.
+      if (this.tutorial && myRole !== null && !finished) round.coach = computeCoach(r, myRole);
     }
 
     return {
@@ -583,6 +589,7 @@ export class Table {
       format: this.format,
       status: this.status,
       timed: this.timed,
+      tutorial: this.tutorial,
       rated: this.rated,
       // Actually counts toward Elo only when it's a rated game AND every seat is
       // a logged-in account (account ids are prefixed "u_").
@@ -617,6 +624,7 @@ export interface TableView {
   format: MatchFormat;
   status: TableStatus;
   timed: boolean;
+  tutorial: boolean;
   rated: boolean;
   ranked: boolean;
   dealIndex: number;
@@ -653,4 +661,5 @@ export interface RoundView {
   skatDealt: [Card, Card] | null; // the two cards originally dealt to the skat
   banks: number[]; // remaining time-bank reserve per slot (ms)
   turnRemainingMs: number | null; // clock left for the player on turn (ms)
+  coach?: CoachView; // tutorial-only: per-turn hint data for the human learner
 }

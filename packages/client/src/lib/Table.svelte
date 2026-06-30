@@ -12,6 +12,7 @@
   import { cubicOut } from 'svelte/easing';
   import { settings, toggle } from './settings.ts';
   import { playCardSound } from './sound.ts';
+  import { whyForFeature } from './tutorialHints.ts';
 
   // A played card flies from its place in the hand to its slot on the trick board:
   // the hand card (out:sendCard) and the board card (in:receiveCard) share a key
@@ -336,6 +337,24 @@
   }
 
   const shareLink = $derived(view ? `${location.origin}/?table=${view.id}` : '');
+
+  // ---- tutorial coach (present only on a tutorial practice table; see CoachView) ----
+  const tutorial = $derived(view?.tutorial ?? false);
+  const coach = $derived(round?.coach);
+  const coachBestIds = $derived(new Set(coach?.bestCards?.map((b) => b.id) ?? []));
+  const coachDiscardIds = $derived(new Set(coach?.discardIds ?? []));
+  const COACH_SUIT_NAME: Record<string, string> = { C: 'Clubs', S: 'Spades', H: 'Hearts', D: 'Diamonds' };
+  function coachContractLabel(key?: string): string {
+    if (!key) return '';
+    return COACH_SUIT_NAME[key] ?? (key === 'grand' ? 'Grand' : key === 'null' ? 'Null' : key);
+  }
+  // The "why this card" text for a hand card, or undefined if it isn't a suggested card.
+  function coachReason(id: string): string | undefined {
+    const b = coach?.bestCards?.find((x) => x.id === id);
+    if (!b) return undefined;
+    if (coach?.onlyOption) return 'Your only option here.';
+    return whyForFeature(b.feature);
+  }
 
   function isMyTurn(): boolean {
     if (!round) return false;
@@ -749,24 +768,33 @@
             {#if myBidMatadors}
               <p class="matador">Your hand: {myBidMatadors.withTop ? 'with' : 'without'} {myBidMatadors.n} matador{myBidMatadors.n === 1 ? '' : 's'}</p>
             {/if}
+            {#if tutorial && coach && coach.bidCeil != null}
+              <div class="coachhint">💡
+                {#if coach.bidCeil > 0}
+                  Looks playable — hold the bidding up to <strong>{coach.bidCeil}</strong> (likely a {coachContractLabel(coach.bidContractKey)} game).
+                {:else}
+                  This hand is too weak to declare — I'd pass.
+                {/if}
+              </div>
+            {/if}
 
             {#if isMyTurn()}
               {#if round.bidding!.awaiting === 'response'}
                 <p class="prompt">Hold {round.bidding!.currentBid}, or pass?</p>
                 <div class="bigactions">
-                  <button class="primary" onclick={hold}>Hold {round.bidding!.currentBid}</button>
+                  <button class="primary" class:reco={tutorial && coach != null && coach.bidCeil != null && coach.bidCeil >= round.bidding!.currentBid} onclick={hold}>Hold {round.bidding!.currentBid}</button>
                   <button onclick={pass}>Pass</button>
                 </div>
               {:else if round.bidding!.awaiting === 'forehand-decision'}
                 <p class="prompt">Everyone passed. Play at the minimum bid?</p>
                 <div class="bigactions">
-                  <button class="primary" onclick={() => bid(18)}>Play for 18</button>
+                  <button class="primary" class:reco={tutorial && (coach?.bidCeil ?? 0) >= 18} onclick={() => bid(18)}>Play for 18</button>
                   <button onclick={pass}>Pass</button>
                 </div>
               {:else}
                 <p class="prompt">Your call:</p>
                 <div class="bigactions">
-                  {#each nextBids() as v}<button class="primary" onclick={() => bid(v)}>{v}</button>{/each}
+                  {#each nextBids() as v}<button class="primary" class:reco={tutorial && (coach?.bidCeil ?? 0) >= v} onclick={() => bid(v)}>{v}</button>{/each}
                   <button onclick={pass}>Pass</button>
                 </div>
               {/if}
@@ -779,25 +807,30 @@
             <div class="panel declaring">
               {#if round.declareStep === 'choose'}
                 <h3>You won the bid at {round.bid}</h3>
+                {#if tutorial && coach && coach.takeSkat != null}
+                  <div class="coachhint">💡 {coach.takeSkat ? 'Pick up the Skat — its two cards usually improve your hand and let you bury liabilities.' : 'Play it as a Hand (skip the Skat) — your ten cards are strong on their own, and Hand scores one multiplier higher.'}</div>
+                {/if}
                 <div class="bigactions">
-                  <button class="primary" onclick={takeSkat}>Pick up Skat</button>
-                  <button onclick={playHand}>Play hand</button>
+                  <button class="primary" class:reco={tutorial && coach?.takeSkat === true} onclick={takeSkat}>Pick up Skat</button>
+                  <button class:reco={tutorial && coach?.takeSkat === false} onclick={playHand}>Play hand</button>
                 </div>
               {:else}
                 {#if round.declareStep === 'discard'}
                   <h3>Name your game, and tap 2 cards below for the Skat ({selected.length}/2)</h3>
+                  {#if tutorial && coach && (coach.contractKey || coach.discardIds)}<div class="coachhint">💡 I'd play <strong>{coachContractLabel(coach.contractKey)}</strong> (ringed). Bury the two glowing cards — keep aces and trumps; shed point-cards or empty a side suit.</div>{/if}
                 {:else}
                   <h3>Choose your game</h3>
+                  {#if tutorial && coach?.contractKey}<div class="coachhint">💡 I'd play {coachContractLabel(coach.contractKey)} (glowing). It must be worth at least your bid of {round.bid}.</div>{/if}
                 {/if}
                 <div class="dchoose">
                   <div class="drow">
                     {#each SUIT_GLYPHS as s}
-                      <button class="suitbtn" class:dsel={selGame === 'suit' && selSuit === s.k} onclick={() => { selGame = 'suit'; selSuit = s.k; }} aria-label={s.name}>
+                      <button class="suitbtn" class:dsel={selGame === 'suit' && selSuit === s.k} class:reco={tutorial && coach?.contractKey === s.k} onclick={() => { selGame = 'suit'; selSuit = s.k; }} aria-label={s.name}>
                         <SuitPip suit={s.k} size={22} outline />
                       </button>
                     {/each}
-                    <button class:dsel={selGame === 'grand'} onclick={() => (selGame = 'grand')}>Grand</button>
-                    <button class:dsel={selGame === 'null'} onclick={() => (selGame = 'null')}>Null</button>
+                    <button class:dsel={selGame === 'grand'} class:reco={tutorial && coach?.contractKey === 'grand'} onclick={() => (selGame = 'grand')}>Grand</button>
+                    <button class:dsel={selGame === 'null'} class:reco={tutorial && coach?.contractKey === 'null'} onclick={() => (selGame = 'null')}>Null</button>
                   </div>
                   {#if selGame === 'null'}
                     <div class="drow">
@@ -902,23 +935,36 @@
             {/if}
           </div>
         </div>
+        {#if tutorial && round?.phase === 'playing' && coach && coach.eyesDeclarer != null}
+          <div class="coachstrip">
+            Eyes — declarer <strong>{coach.eyesDeclarer}</strong> · defenders <strong>{coach.eyesDefenders}</strong>
+            {#if coach.trumpsOut != null} · <strong>{coach.trumpsOut}</strong> trump{coach.trumpsOut === 1 ? '' : 's'} still out{/if}
+          </div>
+        {/if}
         <div class="hand">
           {#each hand as card (cardId(card))}
+            {@const cidc = cardId(card)}
             {@const selectable = round?.phase === 'declaring' && round.declareStep === 'discard'}
             {@const playable = round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)}
             {@const premovable = round?.phase === 'playing' && !isMyTurn() && followLegal(card)}
             {@const isPremove = !!premove && cardId(premove) === cardId(card)}
             {@const dragHere = $settings.dragToPlay && round?.phase === 'playing'}
+            {@const coachBest = tutorial && coachBestIds.has(cidc)}
+            {@const coachSuggest = tutorial && selectable && coachDiscardIds.has(cidc)}
+            {@const coachWhy = coachBest ? coachReason(cidc) : undefined}
             <!-- The wrapper only carries the drag gesture; the actual control is
                  the <button> inside CardView, so it needs no role of its own. -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class="handcard"
               class:dragging={!!dragCard && cardId(dragCard) === cardId(card)}
+              class:coachbest={coachBest}
+              class:coachsuggest={coachSuggest}
               animate:flip={{ duration: 200, easing: cubicOut }}
               out:sendCard={{ key: cardId(card) }}
               onpointerdown={dragHere ? (e) => onCardPointerDown(e, card) : undefined}
             >
+              {#if coachWhy}<div class="coachbubble">{coachWhy}</div>{/if}
               <CardView
                 {card}
                 fill
@@ -1486,9 +1532,69 @@
   /* The card being dragged: dim the original in the hand, no scrolling hijack. */
   .handcard {
     touch-action: none;
+    position: relative; /* anchor for the tutorial coach bubble */
   }
   .handcard.dragging {
     opacity: 0.3;
+  }
+  /* ---- tutorial coach visuals ---- */
+  .coachhint {
+    background: rgba(255, 213, 74, 0.12);
+    border: 1px solid rgba(255, 213, 74, 0.35);
+    border-radius: 10px;
+    padding: 8px 11px;
+    margin: 8px auto;
+    max-width: 360px;
+    line-height: 1.4;
+    font-size: 13.5px;
+  }
+  /* recommended action gets a soft gold ring */
+  .reco {
+    box-shadow: 0 0 0 2px #ffd54a, 0 0 12px rgba(255, 213, 74, 0.5);
+  }
+  .coachstrip {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 4px;
+  }
+  /* best card glows green; a suggested discard glows the same */
+  .handcard.coachbest,
+  .handcard.coachsuggest {
+    border-radius: 7%;
+    box-shadow: 0 0 0 3px #5fd07a, 0 0 14px rgba(95, 208, 122, 0.7);
+  }
+  /* the "why this card" bubble: hidden until you hover the card */
+  .coachbubble {
+    display: none;
+    position: absolute;
+    bottom: 108%;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 170px;
+    background: #1d2a22;
+    border: 1px solid #5fd07a;
+    color: #eaf6ee;
+    border-radius: 10px;
+    padding: 7px 9px;
+    font-size: 12.5px;
+    line-height: 1.35;
+    text-align: center;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+    z-index: 6;
+    pointer-events: none;
+  }
+  .handcard:hover .coachbubble {
+    display: block;
+  }
+  .coachbubble::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #5fd07a;
   }
   /* Floating card following the pointer during a drag. */
   .dragghost {

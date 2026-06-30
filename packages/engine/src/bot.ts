@@ -45,6 +45,23 @@ import { chooseCardScored, chooseDiscardScored, scoreCardsScored, bandedSoftmaxP
 import { mcBidAction, mcDeclareAction } from './bot-mc.ts';
 
 export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
+// Public hint APIs (used by the client tutorial assistant): the per-card play scorer, its
+// feature decomposition, the discard scorer, the feature name tables, and the MC bid/declare
+// evaluators. Re-exported here so they reach the client via the package root (index.ts -> bot.ts).
+export {
+  scoreCardsScored,
+  explainCardsScored,
+  SUIT_FEATURES,
+  NULL_FEATURES,
+  type PlayWeights,
+  type CardExplanation,
+  type CardContribution,
+} from './bot-play-score.ts';
+export { mcEvaluateHand, mcEvaluateHand12 } from './bot-mc.ts';
+export { chooseDiscardScored } from './bot-play-score.ts';
+export { mcDeclareAction } from './bot-mc.ts';
+// Public memory helpers (used by the tutorial coach to show trumps still outstanding).
+export { buildMemory, outstandingTrumps, type PlayMemory } from './bot-memory.ts';
 
 // The single entry point: a legal move for `seat` in the current state, or null
 // if it is not that seat's turn / nothing to do. `params` lets callers (the
