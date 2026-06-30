@@ -69,6 +69,9 @@ function active(r: RoundState): Seat | null {
 function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = false): { won: boolean; value: number; schneider: boolean; schwarz: boolean } {
   let r = createRound(d);
   let guard = 0;
+  // Rollouts estimate the EV of GREEDY play; strip any softmax temperature so the
+  // playouts stay deterministic and low-variance (real play may still randomise).
+  const gp = params.playTemp ? { ...params, playTemp: 0 } : params;
   const step = (seat: Seat): Action | null => {
     if (r.phase === 'bidding') {
       if (seat !== 0) return { type: 'pass', seat };
@@ -90,7 +93,7 @@ function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = fa
     }
     const legal = legalCards(r, seat);
     if (legal.length <= 1) return legal.length ? { type: 'playCard', seat, card: legal[0] } : null;
-    return decideBotAction(r, seat, params); // scored play (mcBidK is irrelevant: only the playing phase is reached here)
+    return decideBotAction(r, seat, gp); // scored GREEDY play (mcBidK irrelevant here; gp strips softmax temp)
   };
   while (r.phase !== 'finished') {
     if (++guard > 600) throw new Error('playout did not terminate');

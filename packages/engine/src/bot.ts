@@ -41,7 +41,7 @@ import { countMatadors, previewGameValue } from './scoring.ts';
 import { nextBid } from './bidding.ts';
 import { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
 import { buildMemory, isCategoryMaster, outstandingTrumps, someoneCanRuff, type PlayMemory } from './bot-memory.ts';
-import { chooseCardScored, chooseDiscardScored } from './bot-play-score.ts';
+import { chooseCardScored, chooseDiscardScored, scoreCardsScored, bandedSoftmaxProbs, sampleFromProbs } from './bot-play-score.ts';
 import { mcBidAction, mcDeclareAction } from './bot-mc.ts';
 
 export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
@@ -282,9 +282,43 @@ function decidePlay(s: RoundState, seat: Seat, p: BotParams): Action | null {
   // null arenas (experiments/evolve-null.ts, evolve-nulldef.ts). The hand-tuned
   // heuristic (chooseCard) remains only as the scorePlay-off fallback.
   if (p.scorePlay && p.scorePlay > 0.5 && p.playW) {
+    // playTemp > 0: sample from the banded softmax for varied, less predictable play.
+    // The draw is seeded from this exact decision's state (seat + trick so far + hand),
+    // so play is reproducible and identical on a replay of the same position.
+    const temp = effectivePlayTemp(s, seat, p);
+    if (temp > 0) {
+      const probs = bandedSoftmaxProbs(scoreCardsScored(s, seat, legal, p.playW), temp, p.playBandDelta ?? 0);
+      return { type: 'playCard', seat, card: legal[sampleFromProbs(probs, playRand(s, seat))] };
+    }
     return { type: 'playCard', seat, card: chooseCardScored(s, seat, legal, p.playW) };
   }
   return { type: 'playCard', seat, card: chooseCard(s, seat, legal, p) };
+}
+
+// The temperature actually used at this decision: the base playTemp, reduced for the
+// DEFENDERS (playTempDefFactor) and forced to 0 in the endgame (playTempEndgameTrick),
+// where the line is countable and the model's near-ties are false. 0 => greedy argmax.
+// Exported so measurement harnesses read the same effective temp the bot plays with.
+export function effectivePlayTemp(s: RoundState, seat: Seat, p: BotParams): number {
+  if (!p.playTemp || p.playTemp <= 0) return 0;
+  let t = p.playTemp;
+  if (s.declarer !== null && s.declarer !== seat && p.playTempDefFactor != null) t *= p.playTempDefFactor;
+  if (p.playTempEndgameTrick != null && s.trickCount >= p.playTempEndgameTrick) t = 0;
+  return t;
+}
+
+// A reproducible [0,1) draw for the softmax sampler, hashed from the decision's full
+// state: the acting seat, tricks played so far, the cards already in the current trick,
+// and the bot's own hand. Same position -> same draw (replay-safe); different positions
+// decorrelate. FNV-1a over the card ids, then one LCG step to spread the bits.
+function playRand(s: RoundState, seat: Seat): number {
+  let h = 2166136261 ^ (seat + 1) ^ ((s.trickCount + 1) << 8);
+  const tokens: string[] = [];
+  for (const t of s.trick) tokens.push('p' + t.seat + cardId(t.card));
+  for (const c of s.hands[seat]) tokens.push(cardId(c));
+  for (const tok of tokens) for (let i = 0; i < tok.length; i++) h = Math.imul(h ^ tok.charCodeAt(i), 16777619) >>> 0;
+  const x = (Math.imul(h, 1664525) + 1013904223) >>> 0;
+  return x / 0x100000000;
 }
 
 function chooseCard(s: RoundState, seat: Seat, legal: Card[], p: BotParams): Card {

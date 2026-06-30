@@ -95,6 +95,31 @@ export interface BotParams {
   scorePlay?: number;
   playW?: import('./bot-play-score.ts').PlayWeights;
 
+  // --- Softmax play randomness. When > 0, the scored play policy SAMPLES a card from
+  // softmax(score / playTemp) over the legal candidates instead of taking the strict
+  // argmax, so the bot varies its play (less predictable, more human-like) at a cost in
+  // strength that grows with the temperature. 0/undefined = strict argmax (current
+  // behaviour, byte-identical). The sample is seeded from the public+private game state,
+  // so it is reproducible and replay-safe. NEVER applied inside MC rollouts (the EV
+  // estimate must stay low-variance): bot-mc forces greedy play in its playouts.
+  playTemp?: number;
+
+  // --- Refinements to the softmax (all only matter when playTemp > 0):
+  // playBandDelta: only cards whose score is within this much of the best score are
+  //   eligible to be sampled; the softmax runs over that top band. Bounds the EV given
+  //   up per decision by ~delta (in score units) and never plays a clearly-worse card.
+  //   0/undefined = no band (softmax over all legal cards).
+  // playTempEndgameTrick: from this trick index onward (s.trickCount), force greedy
+  //   (temp -> 0). The endgame is countable/forced, so the linear model's "near-ties"
+  //   there are false; randomising bleeds EV. undefined = no endgame gate.
+  // playTempDefFactor: multiply the temperature by this for the DEFENDERS (declarer
+  //   keeps the full temp). The defender's card-choice channel is more valuable for
+  //   partner signalling than for denying the declarer, so a lower defender temp is
+  //   usually right. undefined/1 = same temp for all roles; 0 = defenders play greedy.
+  playBandDelta?: number;
+  playTempEndgameTrick?: number;
+  playTempDefFactor?: number;
+
   // --- Monte-Carlo contract selection (bot-mc.ts). When > 0, the bot picks its
   // game/bid by simulating each candidate contract this many times per determinized
   // world and choosing the best expected points, instead of the linear bidding
@@ -280,6 +305,19 @@ export const DEFAULT_PARAMS: BotParams = {
   mcAnnounce: 1,
 
   scorePlay: 1,
+
+  // Softmax play randomness, ON at a very low temperature: the scored play SAMPLES from
+  // softmax(score / 0.01) instead of the strict argmax, so the bot varies its card play
+  // (~2.8% of decisions differ from the argmax, only the closest near-ties) -- less
+  // predictable / more human-like, with NO measurable strength cost. Paired A/B vs greedy
+  // argmax, N=12000 (experiments/ab-softmax.ts): +0.10 +/- 0.17 pts/deal (statistically
+  // zero, faintly positive). Higher temperatures buy more variety but cost real points
+  // (T=0.10 -> -0.39; >=0.7 bits of entropy -> -1.5..-2), and banding/phase/role-gating did
+  // NOT discount that (ab-softmax-cfg.ts) -- cost is ~convex in the deviation rate, so the
+  // free zone is just this low-T sliver. Rollouts force greedy (bot-mc strips playTemp), so
+  // the MC bidder/declarer EV estimates are unaffected. 0/undefined would restore argmax.
+  playTemp: 0.01,
+
   // Play weights. DECLARER (suitDecl, grandDecl) and the discard (discSuit, discNull) were
   // RE-LEARNED by GA search on the real-game arena (experiments/train-relearn.ts: lone scored
   // bot vs two frozen production bots, formula bidder so no play->bid feedback). The search

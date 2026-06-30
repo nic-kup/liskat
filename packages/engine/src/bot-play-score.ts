@@ -410,10 +410,9 @@ function dot(f: number[], w: number[]): number {
   return s;
 }
 
-// Choose a card from `legal` by linear scoring with the role's weight vector.
-// Ties (equal score) resolve to the FIRST legal card, which `legalCards` returns
-// in a stable hand order, so play is deterministic.
-export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): Card {
+// Linear score of every legal card with the role's weight vector, in `legal` order.
+// Factored out so both the argmax chooser and the softmax sampler score identically.
+export function scoreCardsScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): number[] {
   const ctx = buildCtx(s, seat);
   const isNull = ctx.contract.type === 'null';
   const isGrand = ctx.contract.type === 'grand';
@@ -429,17 +428,57 @@ export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: Pl
     weights = ctx.defPosGood ? before : after; // defPosBad (or, defensively, neither) -> after
   }
   const feats = isNull ? nullFeatures : suitFeatures;
+  return legal.map((c) => dot(feats(c, ctx), weights));
+}
 
-  let best = legal[0];
-  let bestScore = -Infinity;
-  for (const c of legal) {
-    const sc = dot(feats(c, ctx), weights);
-    if (sc > bestScore) {
-      bestScore = sc;
-      best = c;
-    }
-  }
-  return best;
+// Choose a card from `legal` by linear scoring with the role's weight vector.
+// Ties (equal score) resolve to the FIRST legal card, which `legalCards` returns
+// in a stable hand order, so play is deterministic.
+export function chooseCardScored(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights): Card {
+  const scores = scoreCardsScored(s, seat, legal, w);
+  let best = 0;
+  for (let i = 1; i < scores.length; i++) if (scores[i] > scores[best]) best = i;
+  return legal[best];
+}
+
+// The sampling distribution over the candidate cards: a BANDED softmax. Cards whose score
+// is more than `bandDelta` below the best are excluded (probability 0) so a clearly-worse
+// card is never played; the softmax(score/temp) runs over the remaining top band. With
+// temp <= 0, fewer than two eligible cards, or a single legal card, it degenerates to a
+// one-hot on the argmax (greedy). Numerically stable (subtracts the max before exp). This
+// is the single source of truth for both sampling and the measured play entropy.
+export function bandedSoftmaxProbs(scores: number[], temp: number, bandDelta = 0): number[] {
+  const n = scores.length;
+  const probs = new Array<number>(n).fill(0);
+  let best = 0;
+  for (let i = 1; i < n; i++) if (scores[i] > scores[best]) best = i;
+  if (!(temp > 0) || n <= 1) { probs[best] = 1; return probs; }
+  const max = scores[best];
+  const cutoff = bandDelta > 0 ? max - bandDelta : -Infinity;
+  let sum = 0;
+  for (let i = 0; i < n; i++) if (scores[i] >= cutoff) { probs[i] = Math.exp((scores[i] - max) / temp); sum += probs[i]; }
+  if (sum <= 0) { probs.fill(0); probs[best] = 1; return probs; }
+  for (let i = 0; i < n; i++) probs[i] /= sum;
+  return probs;
+}
+
+// Pick an index from a probability vector using a [0,1) draw. Caller seeds `rand` from
+// game state for reproducibility.
+export function sampleFromProbs(probs: number[], rand: number): number {
+  let r = rand;
+  for (let i = 0; i < probs.length; i++) { r -= probs[i]; if (r <= 0) return i; }
+  for (let i = probs.length - 1; i >= 0; i--) if (probs[i] > 0) return i; // float guard
+  return 0;
+}
+
+// Sample a card from the banded softmax over the legal candidates (one call).
+export function sampleCardSoftmax(scores: number[], legal: Card[], temp: number, rand: number, bandDelta = 0): Card {
+  return legal[sampleFromProbs(bandedSoftmaxProbs(scores, temp, bandDelta), rand)];
+}
+
+// Convenience: score + banded-softmax-sample in one call.
+export function chooseCardSoftmax(s: RoundState, seat: Seat, legal: Card[], w: PlayWeights, temp: number, rand: number, bandDelta = 0): Card {
+  return sampleCardSoftmax(scoreCardsScored(s, seat, legal, w), legal, temp, rand, bandDelta);
 }
 
 // ---- learnable skat discard ------------------------------------------------
