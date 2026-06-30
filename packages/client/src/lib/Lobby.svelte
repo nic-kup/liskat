@@ -114,6 +114,12 @@
   <footer>
     <span class:on={$conn.connected}>{$conn.connected ? 'connected' : 'connecting…'}</span>
   </footer>
+
+  {#if !account}
+    <div class="howto-cta">
+      <button class="howtobtn" onclick={() => ($page = 'howto')}>How to play</button>
+    </div>
+  {/if}
 </div>
 
 {#if searching}
@@ -286,6 +292,28 @@
   }
   .secondary.greyed:hover {
     background: rgba(255, 255, 255, 0.08);
+  }
+  /* Prominent, centred entry into the rules — the main call to action for a
+     visitor without an account who may not know Skat yet. */
+  .howto-cta {
+    display: flex;
+    justify-content: center;
+    margin-top: 28px;
+  }
+  .howtobtn {
+    padding: 14px 28px;
+    font-size: 17px;
+    font-weight: 700;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 167, 51, 0.5);
+    background: rgba(255, 167, 51, 0.14);
+    color: #ffd9a8;
+    cursor: pointer;
+    transition: background 0.12s, transform 0.12s;
+  }
+  .howtobtn:hover {
+    background: rgba(255, 167, 51, 0.28);
+    transform: translateY(-2px);
   }
   .muted {
     color: var(--muted);
