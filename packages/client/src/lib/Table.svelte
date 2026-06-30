@@ -343,6 +343,22 @@
   const coach = $derived(round?.coach);
   const coachBestIds = $derived(new Set(coach?.bestCards?.map((b) => b.id) ?? []));
   const coachDiscardIds = $derived(new Set(coach?.discardIds ?? []));
+  // The lowest value the human must commit to in order to STAY IN the auction this step: hold the
+  // current bid (responder), play 18 (forehand decision), or make the lowest next bid (asker). If
+  // the coach's ceiling is below this floor, the auction has already passed the hand, so the advice
+  // is to PASS -- even though the ceiling itself is "playable" (you just can't bid that low anymore).
+  const coachBidFloor = $derived.by((): number | null => {
+    const b = round?.bidding;
+    if (!b) return null;
+    if (b.awaiting === 'response') return b.currentBid;
+    if (b.awaiting === 'forehand-decision') return 18;
+    const nb = nextBids();
+    return nb.length ? nb[0] : null;
+  });
+  const coachSaysPass = $derived(
+    tutorial && coach?.bidCeil != null &&
+    (coach.bidCeil === 0 || (coachBidFloor != null && coach.bidCeil < coachBidFloor)),
+  );
   const COACH_SUIT_NAME: Record<string, string> = { C: 'Clubs', S: 'Spades', H: 'Hearts', D: 'Diamonds' };
   function coachContractLabel(key?: string): string {
     if (!key) return '';
@@ -770,7 +786,9 @@
             {/if}
             {#if tutorial && coach && coach.bidCeil != null}
               <div class="coachhint">💡
-                {#if coach.bidCeil > 0}
+                {#if coachSaysPass && coach.bidCeil > 0}
+                  The bidding has passed what this hand is worth (up to <strong>{coach.bidCeil}</strong>) — I'd stop here and pass.
+                {:else if coach.bidCeil > 0}
                   Looks playable — hold the bidding up to <strong>{coach.bidCeil}</strong> (likely a {coachContractLabel(coach.bidContractKey)} game).
                 {:else}
                   This hand is too weak to declare — I'd pass.
@@ -783,19 +801,19 @@
                 <p class="prompt">Hold {round.bidding!.currentBid}, or pass?</p>
                 <div class="bigactions">
                   <button class="primary" class:reco={tutorial && coach != null && coach.bidCeil != null && coach.bidCeil >= round.bidding!.currentBid} onclick={hold}>Hold {round.bidding!.currentBid}</button>
-                  <button onclick={pass}>Pass</button>
+                  <button class:reco={coachSaysPass} onclick={pass}>Pass</button>
                 </div>
               {:else if round.bidding!.awaiting === 'forehand-decision'}
                 <p class="prompt">Everyone passed. Play at the minimum bid?</p>
                 <div class="bigactions">
                   <button class="primary" class:reco={tutorial && (coach?.bidCeil ?? 0) >= 18} onclick={() => bid(18)}>Play for 18</button>
-                  <button onclick={pass}>Pass</button>
+                  <button class:reco={coachSaysPass} onclick={pass}>Pass</button>
                 </div>
               {:else}
                 <p class="prompt">Your call:</p>
                 <div class="bigactions">
                   {#each nextBids() as v}<button class="primary" class:reco={tutorial && (coach?.bidCeil ?? 0) >= v} onclick={() => bid(v)}>{v}</button>{/each}
-                  <button onclick={pass}>Pass</button>
+                  <button class:reco={coachSaysPass} onclick={pass}>Pass</button>
                 </div>
               {/if}
             {:else}
