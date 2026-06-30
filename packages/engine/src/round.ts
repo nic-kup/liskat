@@ -166,6 +166,7 @@ export function applyAction(state: RoundState, action: Action): RoundState {
 // ---- Bidding ---------------------------------------------------------------
 
 function applyBidding(s: RoundState, a: Action): RoundState {
+  if (a.type === 'collect') fail('not in the play phase'); // narrows away the seat-less collect
   const b = s.bidding;
   if (b.awaiting === 'forehand-decision') {
     if (a.seat !== 0) fail('only forehand decides here');
@@ -260,6 +261,7 @@ function enterDeclaring(s: RoundState): RoundState {
 }
 
 function applyDeclaring(s: RoundState, a: Action): RoundState {
+  if (a.type === 'collect') fail('not in the play phase'); // narrows away the seat-less collect
   if (a.seat !== s.declarer) fail('only the declarer acts now');
 
   if (a.type === 'takeSkat') {

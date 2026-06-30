@@ -23,6 +23,7 @@
     fallback: () => ({ duration: 170, easing: cubicOut, css: (t) => `opacity:${t}; transform: scale(${0.82 + 0.18 * t})` }),
   });
 
+  const view = $derived($conn.view as TableView);
   let confirmLeave = $state(false);
   // Leaving forfeits rating only in a ranked game in progress, i.e. a rated
   // game where every player has an account (view.ranked already encodes that).
@@ -36,7 +37,6 @@
     if (e.key === 'Escape' && settingsOpen) settingsOpen = false;
   }
 
-  const view = $derived($conn.view as TableView);
   const round = $derived(view?.round);
   const mySlot = $derived(view?.youSlot ?? -1);
   const me = $derived(view?.players.find((p) => p.you));
@@ -54,6 +54,13 @@
   // the hand and dropped into the trick) before the server confirms, so play
   // feels instant. Reconciled against the authoritative view below.
   let pending = $state<Card | null>(null);
+  // Remaining clock (ms) captured the instant we optimistically played: while a
+  // move is pending we've acted from our point of view, so the clock is frozen
+  // here rather than ticking down on our own seat until the server confirms and
+  // moves the turn on. Without this, a slow/half-open socket shows our timer
+  // draining after we've already played ("I played a card but the timer keeps
+  // going down"). Captured when we set `pending`, cleared when it reconciles.
+  let frozenClockMs = $state<number | null>(null);
   const hand = $derived.by(() => {
     if (!round) return [];
     const cards = pending ? round.yourHand.filter((c) => cardId(c) !== cardId(pending!)) : round.yourHand;
@@ -69,7 +76,10 @@
   $effect(() => {
     if (!pending) return;
     const inHand = round?.yourHand?.some((c) => cardId(c) === cardId(pending!));
-    if (!inHand || !isMyTurn()) pending = null;
+    if (!inHand || !isMyTurn()) {
+      pending = null;
+      frozenClockMs = null;
+    }
   });
   // A card the player queued to play before their turn ("pre-move"): shown greyed
   // in the hand and, when there's room on the board, as a faint ghost in their
@@ -92,6 +102,7 @@
     const t = setTimeout(() => {
       if (round?.phase === 'playing' && isMyTurn() && !pending && legalNow(pm)) {
         pending = pm; // play it just like a normal click
+        frozenClockMs = liveRemainingMs(); // freeze our clock; we've acted
         playCard(pm);
         playCardSound();
       }
@@ -223,7 +234,10 @@
   const clockParts = $derived.by(() => {
     if (round?.turnRemainingMs == null || clockSlot < 0) return null;
     void clockTick; // re-evaluate on each tick
-    const total = Math.max(0, clockBase.ms - (Date.now() - clockBase.at));
+    // Our move is in flight: freeze our clock at the moment we played instead of
+    // letting it drain while we wait for the server to advance the turn.
+    const frozen = pending && clockSlot === mySlot && frozenClockMs != null;
+    const total = frozen ? frozenClockMs! : Math.max(0, clockBase.ms - (Date.now() - clockBase.at));
     const bank = round.banks?.[clockSlot] ?? 0;
     const base = total - bank;
     const inReserve = base <= 0;
@@ -231,6 +245,10 @@
     // gone it counts into the reserve and both turn red.
     return { base: clk(inReserve ? 0 : base), reserve: clk(inReserve ? total : bank), low: inReserve };
   });
+  // Our clock's remaining time (ms) right now, for freezing on optimistic play.
+  function liveRemainingMs(): number {
+    return Math.max(0, clockBase.ms - (Date.now() - clockBase.at));
+  }
   // mm-less "Xs" with a 2-digit pad so every clock is the same width.
   function clk(ms: number): string {
     return `${String(Math.ceil(Math.max(0, ms) / 1000)).padStart(2, '0')}s`;
@@ -459,6 +477,7 @@
     if (round?.phase === 'declaring' && round.declareStep === 'discard') toggleSelect(card);
     else if (round?.phase === 'playing' && isMyTurn() && !pending && legalNow(card)) {
       pending = card; // show it played at once; the next server view confirms
+      frozenClockMs = liveRemainingMs(); // freeze our clock; we've acted
       playCard(card);
       playCardSound();
     } else if (round?.phase === 'playing' && !isMyTurn()) {

@@ -19,7 +19,10 @@ export type ClientMessage =
   | { t: 'listTables' }
   | { t: 'chat'; text: string }
   | { t: 'ping' } // client liveness probe; server replies with `pong`
-  | { t: 'action'; action: ClientAction };
+  // `resend` marks an action replayed after a reconnect (the original may have
+  // been lost on a half-open socket). If it's already been applied it's now
+  // illegal, so the server drops it silently instead of surfacing an error.
+  | { t: 'action'; action: ClientAction; resend?: boolean };
 
 // The seat is supplied by the server (derived from who you are), so clients
 // send actions without it.

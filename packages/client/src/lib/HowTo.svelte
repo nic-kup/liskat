@@ -356,7 +356,7 @@
           <div class="calc-value">{calc.value}</div>
           <div class="calc-formula"><strong>{calc.name}</strong> · {calc.withLabel} matador{matadors.n === 1 ? '' : 's'}</div>
           <div class="calc-formula">{calc.base} × {calc.mult} = {calc.value}</div>
-          <div class="calc-parts">multiplier {calc.mult} = {calc.parts.map((p) => p.label + ' ' + p.n).join(' + ')}</div>
+          <div class="calc-parts">multiplier {calc.mult} = {(calc.parts ?? []).map((p) => p.label + ' ' + p.n).join(' + ')}</div>
         {/if}
       </div>
     </div>

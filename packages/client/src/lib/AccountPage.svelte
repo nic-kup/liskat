@@ -56,7 +56,7 @@
     if (!c) return 'Passed in';
     if (c.type === 'grand') return 'Grand';
     if (c.type === 'null') return 'Null';
-    return { C: '♣ Clubs', S: '♠ Spades', H: '♥ Hearts', D: '♦ Diamonds' }[c.suit ?? 'C'];
+    return { C: '♣ Clubs', S: '♠ Spades', H: '♥ Hearts', D: '♦ Diamonds' }[c.suit ?? 'C'] ?? '♣ Clubs';
   }
   // Within a trick, card k was played by slot (leader + k) % 3 (turn order maps
   // to consecutive slots mod 3); the winning card is at (winner - leader) % 3.

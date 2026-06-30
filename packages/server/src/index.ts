@@ -459,7 +459,10 @@ function handle(client: Client, msg: ClientMessage): void {
       const table = lobby.get(client.tableId);
       if (!table) return;
       const err = table.handleAction(client.id, msg.action);
-      if (err) send(client.ws, { t: 'error', msg: err });
+      // A resent action that's already been applied is now illegal; swallow the
+      // error (the broadcast below re-syncs the client either way). A genuinely
+      // lost action still applies normally.
+      if (err && !msg.resend) send(client.ws, { t: 'error', msg: err });
       broadcastTable(table);
       return;
     }

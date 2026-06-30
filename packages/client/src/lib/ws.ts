@@ -53,6 +53,13 @@ export const conn = writable<ConnState>({
 
 let socket: WebSocket | null = null;
 let queue: string[] = [];
+// The last action we sent that we're not yet sure the server received. On a
+// half-open socket a `send` succeeds locally but the bytes never arrive, so the
+// move is silently lost; the watchdog reconnects but the move is gone. We hold
+// the action here and replay it (flagged `resend`) once a fresh socket opens.
+// Cleared as soon as any authoritative `table` view comes back, since that
+// proves the round-trip completed (or re-syncs us if it didn't apply).
+let pendingAction: { t: 'action'; action: unknown } | null = null;
 // Reconnect backoff and a grace period so a brief drop+reconnect doesn't flip
 // the status indicator to "connecting".
 let reconnectDelay = 1000;
@@ -195,6 +202,9 @@ export function connect(): void {
     else if (pid) ws.send(JSON.stringify({ t: 'resume', playerId: pid }));
     for (const m of queue) ws.send(m);
     queue = [];
+    // Replay an action that may have been lost on the socket that just died.
+    // `resend` tells the server to drop it silently if it already applied.
+    if (pendingAction) ws.send(JSON.stringify({ ...pendingAction, resend: true }));
   };
 
   ws.onclose = () => {
@@ -224,6 +234,10 @@ export function connect(): void {
       return;
     }
     if (msg.t === 'pong') return; // liveness reply; the timestamp above is all we need
+    // Any authoritative table state ends the uncertainty about our last action:
+    // it either reflects the move or re-syncs us to the truth. Either way there's
+    // nothing left to replay. (`left` means we're no longer at a table at all.)
+    if (msg.t === 'table' || msg.t === 'left') pendingAction = null;
     conn.update((s) => {
       switch (msg.t) {
         case 'welcome':
@@ -251,6 +265,11 @@ export function connect(): void {
 }
 
 function send(obj: unknown): void {
+  // Remember the latest action so we can replay it if this send is lost to a
+  // half-open socket. A new action supersedes the previous one.
+  if (obj && typeof obj === 'object' && (obj as { t?: string }).t === 'action') {
+    pendingAction = obj as { t: 'action'; action: unknown };
+  }
   const data = JSON.stringify(obj);
   if (socket && socket.readyState === WebSocket.OPEN) socket.send(data);
   else {
@@ -394,6 +413,7 @@ export async function fetchMatch(id: string): Promise<MatchDetail | null> {
 export function logout(): void {
   const token = ls(SESSION_KEY);
   if (token) void authPost('logout', { token });
+  pendingAction = null; // a queued move must not follow us across identities
   setLs(SESSION_KEY, null);
   setLs(ACCOUNT_KEY, null);
   // Forget the stored player id too: it points at the account's seat, so without
@@ -432,6 +452,7 @@ export function joinTable(tableId: string): void {
 }
 
 export function leaveTable(): void {
+  pendingAction = null; // don't replay a move into a table we're leaving
   send({ t: 'leaveTable' });
   // Drop any ?table=… from the URL so a reload doesn't rejoin the table we left.
   try {

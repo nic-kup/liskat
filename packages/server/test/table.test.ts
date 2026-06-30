@@ -106,3 +106,52 @@ test('a player leaving mid-game ends the match', () => {
   t.removePlayer('B');
   assert.equal(t.status, 'over');
 });
+
+// The reconnect "resend" relies on this: an action that already applied is
+// rejected on replay without mutating state, so a duplicated move can never be
+// applied twice. (The message layer simply swallows the error for a resend.)
+test('replaying an already-applied action is rejected and changes nothing', () => {
+  const t = new Table('t6', 'private', { kind: 'deals', deals: 6 });
+  t.setScheduler((cb) => cb());
+  t.addPlayer('A', 'Ann');
+  t.addPlayer('B', 'Bo');
+  t.addPlayer('C', 'Cy');
+
+  const actorFor = (role: Seat) => (['A', 'B', 'C'] as const)[(t.dealIndex + role) % 3];
+
+  // Drive bidding + declaring up to the first card play (forehand grand).
+  let guard = 0;
+  while (t.round!.phase !== 'playing') {
+    if (++guard > 100) throw new Error('never reached play');
+    const r = t.round!;
+    if (r.phase === 'bidding') {
+      const b = r.bidding;
+      if (b.awaiting === 'forehand-decision') must(t.handleAction(actorFor(0), { type: 'bid', value: 18 }));
+      else if (b.awaiting === 'call') must(t.handleAction(actorFor(b.asker), { type: 'pass' }));
+      else must(t.handleAction(actorFor(b.responder!), { type: 'pass' }));
+    } else if (r.declareStep === 'choose') {
+      must(t.handleAction(actorFor(0), { type: 'takeSkat' }));
+    } else if (r.declareStep === 'discard') {
+      must(t.handleAction(actorFor(0), { type: 'discard', cards: [r.hands[0][0], r.hands[0][1]] }));
+    } else {
+      must(t.handleAction(actorFor(0), { type: 'declareContract', contract: { type: 'grand' } }));
+    }
+  }
+
+  const role = t.round!.turn;
+  const card = legalCards(t.round!, role)[0];
+  const actor = actorFor(role);
+  const handBefore = t.round!.hands[role].length;
+
+  // First play succeeds; the identical replay is now out of turn / card gone.
+  assert.equal(t.handleAction(actor, { type: 'playCard', card }), null);
+  const afterFirst = { trick: t.round!.trick.length, turn: t.round!.turn, hand: t.round!.hands[role].length };
+  assert.equal(afterFirst.hand, handBefore - 1);
+
+  const err = t.handleAction(actor, { type: 'playCard', card });
+  assert.ok(err, 'a replayed already-applied play must be rejected');
+  // State is untouched by the rejected replay: same trick, same turn, same hand.
+  assert.equal(t.round!.trick.length, afterFirst.trick);
+  assert.equal(t.round!.turn, afterFirst.turn);
+  assert.equal(t.round!.hands[role].length, afterFirst.hand);
+});
