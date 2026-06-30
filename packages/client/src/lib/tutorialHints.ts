@@ -38,6 +38,43 @@ export const FEATURE_WHY: Record<string, string> = {
   nfollow_voidlen: 'Discards to shorten a suit safely.',
 };
 
+// The generated product-grid features (bot-play-score.ts GRID_*) are named g_<gate>_<prop>.
+// Rather than hand-write all 72, compose a sentence from a property phrase (what the card does)
+// and an optional situation phrase (when/why). These dominate the DEFENDER best-card hints now
+// that the wide grid carries the defender weights, so a specific sentence beats the generic fallback.
+const GRID_PROP_PHRASE: Record<string, string> = {
+  str: 'plays a strong card',
+  pts: 'plays a high-value card',
+  len: 'plays from a long suit',
+  trump: 'plays a trump',
+  master: 'plays a sure winner',
+  win: 'takes the trick',
+  winval: 'takes the trick and its points',
+  winstr: 'wins without spending a high card',
+};
+const GRID_GATE_PHRASE: Record<string, string> = {
+  all: '', // ungated
+  foll: '', // just "following", no extra info
+  last: 'as the last to play',
+  oppW: 'back from the declarer',
+  friW: "to pad your partner's trick",
+  phelp: "since your partner can't take it",
+  pcont: '', // partner can still contest -> no clean positive phrasing
+  otout: 'while trumps are still out',
+  endg: 'late in the hand',
+};
+
 export function whyForFeature(feature: string): string {
-  return FEATURE_WHY[feature] ?? 'The bot rates this the strongest play here.';
+  const named = FEATURE_WHY[feature];
+  if (named) return named;
+  const m = /^g_([a-zA-Z]+)_([a-z]+)$/.exec(feature);
+  if (m) {
+    const prop = GRID_PROP_PHRASE[m[2]];
+    if (prop) {
+      const gate = GRID_GATE_PHRASE[m[1]] ?? '';
+      const s = gate ? `${prop} ${gate}` : prop;
+      return s.charAt(0).toUpperCase() + s.slice(1) + '.';
+    }
+  }
+  return 'The bot rates this the strongest play here.';
 }
