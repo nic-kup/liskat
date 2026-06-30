@@ -60,7 +60,12 @@ export interface PlayWeights {
   // COUNTS for the declarer, so the discard trades banked points, trump economy, and
   // creating a ruffing void. Scored over candidate PAIRS (see chooseDiscardScored).
   // Absent -> the bot falls back to the hand-written discard heuristic (bot.ts).
-  discSuit?: number[]; // suit & grand discard (DISC_SUIT_FEATURES)
+  discSuit?: number[]; // suit discard (DISC_SUIT_FEATURES)
+  // Grand discard. Same DISC_SUIT_FEATURES, but computed under grand trump rules (only the
+  // four jacks are trump, side suits are longer), so the void / trump / ten-bare tradeoffs
+  // differ enough to warrant their own vector -- the same reasoning that split grandDecl from
+  // suitDecl. ABSENT -> grand falls back to discSuit (so omitting it is byte-identical).
+  discGrand?: number[];
   discNull?: number[]; // null discard (DISC_NULL_FEATURES)
 }
 
@@ -522,7 +527,9 @@ function discNullFeatures(a: Card, b: Card, hand: Card[]): number[] {
 // weights are set, so the caller falls back to the hand-written heuristic.
 export function chooseDiscardScored(hand12: Card[], contract: Contract, w: PlayWeights): [Card, Card] | null {
   const isNull = contract.type === 'null';
-  const weights = isNull ? w.discNull : w.discSuit;
+  const isGrand = contract.type === 'grand';
+  // Grand uses its own vector when set, else falls back to discSuit (byte-identical default).
+  const weights = isNull ? w.discNull : isGrand ? (w.discGrand ?? w.discSuit) : w.discSuit;
   if (!weights || weights.length === 0) return null;
   let best: [Card, Card] = [hand12[0], hand12[1]];
   let bestScore = -Infinity;

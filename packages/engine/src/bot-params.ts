@@ -318,19 +318,22 @@ export const DEFAULT_PARAMS: BotParams = {
   // the MC bidder/declarer EV estimates are unaffected. 0/undefined would restore argmax.
   playTemp: 0.01,
 
-  // Play weights. DECLARER (suitDecl, grandDecl) and the discard (discSuit, discNull) were
-  // RE-LEARNED by GA search on the real-game arena (experiments/train-relearn.ts: lone scored
-  // bot vs two frozen production bots, formula bidder so no play->bid feedback). The search
-  // found a clear DECLARER improvement -- worth ~+0.38 pts/deal on the bidding-isolated FORMULA
-  // paired A/B vs the prior production (4 seeds +0.76/+0.30/+0.39/+0.07, all in the declarer
-  // role; grandDecl is now a SEPARATE grand-declarer vector, previously a suit fallback).
-  // DEFENDER (suitDef, grandDef) and null vectors are KEPT from the prior hand-tuned production:
-  // the search did NOT improve defender play (its searched defender weights were flat-to-slightly
-  // -negative on the A/B), so per "take the better one" the existing defender weights stay --
-  // which also preserves the validated overtake_partner (idx 32) and lead_dead_master (idx 33)
-  // fixes. suitDef still ends -2.5, -6, -6 (lead_ruff_highpts, overtake_partner, lead_dead_master).
+  // Play weights, RE-LEARNED under the shipped softmax policy (playTemp=0.01) by parallel GA
+  // search (experiments/train-play2.ts + train-discgrand.ts), validated with real-game MC A/Bs:
+  //  * DECLARER (suitDecl, grandDecl) + suit discard (discSuit): lone scored bot vs two frozen
+  //    prod (defenders frozen, so the signal is pure declarer). Real-game MC A/B (mcBidK=32 both
+  //    sides) = +2.76 +/- 0.75 pts/deal vs the prior production; held-out + role-decomposed gates
+  //    passed, guardrails (overtake idx32, dead-master idx33) intact.
+  //  * GRAND discard (discGrand): NEW vector split from discSuit (grand trump rules differ),
+  //    trained grand-boosted; held-out +1.12 on the grand mix (small per-deal, grand is rare).
+  //  * PER-SEAT DEFENDERS (suitDefBefore/After, grandDefBefore/After): best-response in the
+  //    defender-PAIR arena vs the NEW declarer above. Formula-pair held-out +0.68, real-game MC
+  //    pair gate +0.49 +/- 0.38 def-pts/deal (both defenders upgraded); dead-master guardrail OK.
+  //  * KEPT from prior production: suitDef/grandDef (inert fallbacks), and ALL null vectors
+  //    (nullDecl, nullDef, discNull) -- null is ~never bid/defended in these arenas, so their
+  //    searched values are noise; the dedicated-run null weights stay.
   playW: {
-    suitDecl: [1.308543, -1.949084, -4.885638, 4.905055, 1.149042, 0.411017, 3.875155, 1.121729, -0.438159, 1.691516, -2.566437, 1.166505, 0.273881, 1.621428, -0.499651, -1.795083, -0.905148, 3.390503, -3.594902, -0.216665, 0.49171, 2.771156, -1.271242, 0.814301, -0.293116, -0.162628, -0.494069, 0.010716, -0.094207, 0, -0.283527, -0.053788, 0, 0.817863],
+    suitDecl: [0.546586, -2.043597, -5.027189, 5.310094, 1.750024, 0.659296, 3.346729, 0.923202, 0.162783, 1.712527, -2.429282, 0.858229, 0.183433, 1.634626, -0.345866, -1.359787, -0.905148, 3.081552, -3.435266, 0.013259, 0.439582, 2.764736, -1.730357, 0.794651, 0.254129, -0.229814, -1.099494, 0.389519, -0.753247, 0.374992, -0.639984, 0.219593, -0.020756, 0.854782],
     suitDef: [0.487751, -2.929059, -4.843112, 0.045809, 3.734863, 1.758428, -0.393533, 2.356083, 3.496064, 1.72923, -2.521181, -0.76086, 3.451897, 2.18019, -2.193521, 4.296792, -1.873368, 1.763556, -3.16899, 1.072616, 0.321555, 2.853362, 0.191685, -0.28744, -1.860952, 1.716749, -3.150405, 0, 0, 0, 0, -2.5, -6, -6],
     // PER-SEAT suit-defender vectors (GA search, experiments/train-defseat.ts: candidate
     // plays BOTH defenders vs a frozen prod declarer in the defender-PAIR arena). The two
@@ -339,19 +342,20 @@ export const DEFAULT_PARAMS: BotParams = {
     // (both seats contribute, mildly super-additive) and +0.331 pts/defended-game in the solo
     // arena (bot + prod partner, no regression). chooseCardScored picks by seat; suitDef remains
     // the fallback (grand defence still uses grandDef->suitDef, unchanged).
-    suitDefBefore: [0.856805, -2.047421, -4.281955, -0.681485, 4.081644, 2.022325, 0.290523, 0.87508, 3.188111, 1.357145, -3.437605, -1.451945, 5.427514, 0.314839, -2.497298, 2.574131, -2.733883, 2.330435, -4.129293, 0.844515, 1.657758, 2.751045, 0.858692, -0.863814, -4.623798, 2.107144, -2.277035, -0.224743, -0.46029, -0.882816, -0.361428, -2.720481, -5.204327, -4.230272],
-    suitDefAfter: [-1.536555, -5.340962, -3.561946, 0.562318, 2.111379, 1.029225, -3.363873, 3.045146, 4.611165, 0.0314, -2.444869, -0.130063, 3.124972, 1.471018, -1.209487, 4.092023, -3.221664, 3.546189, -4.071049, 0.153609, -1.832771, 2.380737, 0.758947, -0.119783, -1.534457, 1.28647, -3.320998, -0.051506, 0.570121, 0.413947, 0.309014, -2.070785, -5.94728, -4.756048],
-    grandDecl: [1.645909, -2.483149, -4.936745, 4.987506, 1.242564, 0.896389, 4.039699, 1.300281, 0.391092, 2.041361, -2.760466, 1.374567, -0.0314, 1.452362, -0.484694, -2.204918, -0.343821, 3.886154, -4.627031, 1.649609, -1.321752, 2.514468, -1.557942, 0.415492, -0.519832, 0.451429, -0.548377, 0.169945, -0.086565, 0, -0.218796, -1.206072, 0, 0],
+    suitDefBefore: [-0.373148, -1.07665, -2.683062, -0.945877, 3.939583, 2.49484, 1.795796, 1.465783, 3.054866, 1.193498, -2.949866, -1.520878, 6, 0.909459, -1.937632, 2.606056, -3.455524, 1.608499, -3.423589, 0.746526, 2.077417, 3.469135, 0.712247, -1.738548, -6, 2.150476, -1.359693, -0.721136, 0.441238, -1.314335, -0.769135, -2.503106, -5.467707, -2.860053],
+    suitDefAfter: [-0.283511, -4.456487, -3.681483, 0.411508, 2.240884, 2.805203, -3.987334, 3.138783, 6, 0.610855, -2.727894, 0.087274, 2.70384, 1.83955, -2.085222, 4.608887, -2.266433, 3.663428, -4.977521, -0.203638, -1.951829, 4.437308, -0.036107, -2.669696, -3.189761, 1.568835, -2.322026, -0.351582, -0.08919, 1.004037, 0.159195, -0.354711, -5.685395, -5.475546],
+    grandDecl: [1.686348, -2.320855, -4.536708, 4.691855, 1.220599, 0.73789, 3.056671, 0.876222, 0.146802, 2.235797, -3.254288, 1.482255, -0.0314, 1.852868, -0.310507, -2.330865, -0.6715, 4.640915, -4.999845, 1.874703, -1.438376, 2.620432, -1.961525, 1.726994, -0.548453, -0.015709, -0.7693, 0.359029, -0.210134, 0.977612, -0.218796, -0.660543, 0.513888, 0.721173],
     grandDef: [0.487751, -2.929059, -4.843112, 0.045809, 3.734863, 1.758428, -0.393533, 2.356083, 3.496064, 1.72923, -2.521181, -0.76086, 3.451897, 2.18019, -2.193521, 4.296792, -1.873368, 1.763556, -3.16899, 1.072616, 0.321555, 2.853362, 0.191685, -0.28744, -1.860952, 1.716749, -3.150405, 0, 0, 0, 0, -2.5, -6, -6],
     // PER-SEAT GRAND defenders (GA search, experiments/train-defseat-grand.ts -- same
     // defender-pair arena, suit defenders frozen). Out-of-sample: +0.524 def-pts/deal pair
     // (mostly the after-seat) and +0.179 pts/defended-game solo, no regression. Selected by
     // seat in chooseCardScored; grandDef -> suitDef remains the fallback when absent.
-    grandDefBefore: [1.005628, -2.921422, -5.809566, -1.530458, 1.726516, 0.869575, 0.16158, 3.929011, 3.365928, 2.460164, -3.788555, 0.715282, 4.127682, 1.076829, -2.517215, 4.126264, -0.362159, 0.964999, -4.762175, 0.596416, -0.449427, 1.090677, -0.34725, 1.20096, -1.541022, 3.201657, -2.046321, -1.444422, 0.76587, -0.319015, 0.317684, -2.117133, -3.595301, -4.713769],
-    grandDefAfter: [-0.459003, -3.22455, -4.091614, -0.398831, 2.483113, 0.587633, -0.429594, 3.584728, 2.824764, 1.27944, -2.558825, -0.145025, 2.924367, 1.481008, -2.451887, 2.624487, -0.960045, 1.847016, -3.579404, 3.746974, -0.493055, 4.193719, 0.561519, 0.772557, -1.676068, 2.77946, -3.410146, 0.229589, -1.685514, -1.429614, -0.408149, -1.928722, -5.171424, -6],
+    grandDefBefore: [1.905374, -3.286104, -4.48887, -2.142882, 2.664556, 0.545821, 1.940469, 4.298244, 3.472482, 1.76818, -4.379382, 0.110833, 4.937192, 2.558824, -1.753053, 4.500524, -0.853732, 2.750464, -5.033694, 0.617858, -1.074154, 0.078136, -0.304946, 2.030965, -1.086563, 3.65145, -0.069614, -2.071121, 1.051793, 1.053354, -0.520114, -1.675523, -3.647335, -1.549645],
+    grandDefAfter: [0.884203, -2.151224, -2.877641, -2.10796, 1.956339, -0.344413, -0.479458, 5.039324, 2.31482, 1.926443, -2.669912, 0.278354, 2.754823, 0.72784, -3.401345, 3.159958, -3.030593, 1.983444, -4.319482, 4.629966, 0.881922, 2.502242, 2.873089, 0.22924, -3.880527, 3.110889, -2.6301, 2.09772, -1.807207, -1.171226, -0.143994, -3.345077, -5.638605, -5.275099],
     nullDecl: [-1.670991, 3.95427, -0.443455, -3.641406, -0.766451, 1.166043, -1.716698],
     nullDef: [-0.152611, -4.254485, -3.534734, -2.60709, 3.369348, -0.969604, -2.879463],
-    discSuit: [-0.133363, -4.291359, -5.21138, 0.238447, 1.228396, 0.88801],
+    discSuit: [-0.297596, -4.422196, -4.905627, 0.034377, 1.213613, 1.332189],
+    discGrand: [-1.030075, -4.553247, -5.370312, 0.107808, 1.80254, 1.886982],
     discNull: [2.958071, 1.253295, 1.701583, -1.346473],
   },
 };
