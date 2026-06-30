@@ -13,7 +13,7 @@ export const FEATURE_WHY: Record<string, string> = {
   lead_master_safe: 'Cashes a sure winner no one can trump.',
   lead_len: 'Leads from a long suit to establish it.',
   lead_len_trump: 'Leads from your trump length to keep control.',
-  lead_len_side: 'Leads from your longest side suit to set it up.',
+  lead_len_side: 'Leads from a long side suit to set it up.',
   win: 'Takes the trick.',
   win_val: 'Takes the trick along with the points in it.',
   win_str: 'Wins the trick without spending a high card.',

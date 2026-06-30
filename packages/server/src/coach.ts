@@ -42,11 +42,28 @@ const PLAYW = DEFAULT_PARAMS.playW!;
 function contractKey(c: Contract): string {
   return c.type === 'suit' ? c.suit : c.type;
 }
-// Top POSITIVE feature on a card's score = the headline reason it's good. Contributions are
-// already sorted by |contribution| descending; fall back to the largest term if none positive.
+// A feature may only HEADLINE a card if its learner sentence is actually TRUE for that card. The
+// adjective-bearing features assert the card is "long(est)" / "strong" / "high-value", but because
+// they carry a positive weight they yield a positive contribution even on a LOW value -- so a
+// SINGLETON would wrongly get "leads from your longest side suit" (lead_len_side fires on every
+// side card proportional to length). Gate those claims on the underlying value.
+function sentenceFits(feat: string, value: number): boolean {
+  const prop = /^g_[A-Za-z]+_([a-z]+)$/.exec(feat)?.[1] ?? '';
+  // "long(est) suit" (lead_len*, grid *_len): only a genuinely long suit (>=3 cards; value = len/8).
+  if (feat === 'lead_len' || feat === 'lead_len_side' || feat === 'lead_len_trump' || prop === 'len') return value >= 0.35;
+  // "strong card" (lead_str, grid *_str): only when the card is actually strong (an ace or a trump).
+  if (feat === 'lead_str' || prop === 'str') return value >= 0.5;
+  // "high-value card" (lead_pts, grid *_pts): only when it really carries points (a king or better).
+  if (feat === 'lead_pts' || prop === 'pts') return value >= 0.27;
+  return true;
+}
+// Headline reason = the largest POSITIVE contribution whose sentence is TRUE for the card (the
+// contributions are pre-sorted by |contribution| desc). If none qualifies -- a "least-bad" safe low
+// card chosen for what it AVOIDS, not a positive virtue -- return '' so the client shows the honest
+// generic line rather than a cherry-picked, false-sounding reason.
 function topFeature(e: CardExplanation): string {
-  for (const k of e.contributions) if (k.contribution > 0) return k.feature;
-  return e.contributions[0]?.feature ?? '';
+  for (const k of e.contributions) if (k.contribution > 0 && sentenceFits(k.feature, k.value)) return k.feature;
+  return '';
 }
 
 export function computeCoach(r: RoundState, role: Seat): CoachView {
