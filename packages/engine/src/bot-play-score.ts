@@ -72,7 +72,7 @@ export interface PlayWeights {
 // Feature names double as documentation and fix the vector order. SUIT_FEATURES
 // applies to suit AND grand games (they share a trump structure); NULL_FEATURES
 // to null games.
-export const SUIT_FEATURES = [
+const HAND_SUIT_FEATURES = [
   'lead_str', // leading: trick-strength of the card (low = duck a loser, high = cash)
   'lead_pts', // leading: point value of the card
   'lead_trump', // leading: is a trump (general taste for opening trumps)
@@ -130,6 +130,28 @@ export const SUIT_FEATURES = [
   //     lead, so this is effectively defender-only.)
   'lead_dead_master', // leading: a master in a side suit a waiting opp can ruff (dead -> don't donate it)
 ] as const;
+
+// --- iteration 22 (user-requested WIDE product basis) ---------------------------------------
+// A systematically GENERATED product grid: every (situation gate) x (per-card property). The 34
+// hand-picked features above are themselves a curated subset of such products; this grid is the
+// full sweep, so the GA can discover interactions we never hand-named. Two facts keep it to a
+// tractable, non-degenerate size:
+//   * These features populate ONLY the suit/grand DEFENDER vectors -- a declarer's friendWinning
+//     and waitingPartners are never set, so every gate below is 0 for a declarer (declarer play is
+//     untouched). An "is-defender" gate would be a constant 1 -> omitted as inert.
+//   * The two per-seat defender vectors are already SELECTED by seat (before/after the declarer),
+//     so a defPosGood/defPosBad gate is constant within each -> omitted as inert.
+// A product constant across the candidate cards in a decision cannot change the argmax (it shifts
+// every card equally), so any residual inert column simply earns ~0 weight -- harmless. The grid
+// is laid out gate-major (outer) x property-minor (inner); suitFeatures fills it in the same order.
+const GRID_PCARD = ['str', 'pts', 'len', 'trump', 'master', 'win', 'winval', 'winstr'] as const;
+const GRID_SGATE = ['all', 'foll', 'last', 'oppW', 'friW', 'phelp', 'pcont', 'otout', 'endg'] as const;
+const GRID_FEATURES: string[] = [];
+for (const g of GRID_SGATE) for (const p of GRID_PCARD) GRID_FEATURES.push(`g_${g}_${p}`);
+
+// Public feature names (order fixes the vector layout): the 34 hand features, then the grid.
+export const SUIT_FEATURES: readonly string[] = [...HAND_SUIT_FEATURES, ...GRID_FEATURES];
+const GRID_BASE = HAND_SUIT_FEATURES.length; // index where the generated grid begins (34)
 
 export const NULL_FEATURES = [
   'nlead_rank', // leading: null-rank of the card (7 low .. A high)
@@ -379,6 +401,26 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     // are left alone; self-play rewards banking, since a kept high card often gets ruffed).
     f[32] = win * (ctx.friendWinning ? 1 : 0) * (isLast ? 1 : 0) * trump * ruffSide;
   }
+
+  // --- iteration 22: the GENERATED product grid (GRID_SGATE x GRID_PCARD), filled gate-major.
+  // Contest gates: sHelp = a SECOND-HAND defender (a partner still to play LAST) whose partner is
+  // void in the led suit AND cannot ruff it (out of trumps / no trumps out / trump was led) ->
+  // partner is helpless, I am the last line of defence. sCont = the complement (partner may still
+  // contest, so 'second hand low' applies). Both 0 when leading or for a declarer.
+  let sHelp = 0, sCont = 0;
+  if (!empty && !ctx.iAmDeclarer && ctx.oppWinning && ctx.waitingPartners.length > 0 && led !== null) {
+    const p = ctx.waitingPartners[0];
+    const helpless = ctx.mem.voids[p].has(led) && (led === 'T' || ctx.mem.voids[p].has('T') || ctx.oppTrumpsOut <= 0);
+    sHelp = helpless ? 1 : 0;
+    sCont = helpless ? 0 : 1;
+  }
+  const gprops = [sc, pt, len, trump, master, win, win * capt01, win * sc]; // order == GRID_PCARD
+  const ggates = [ // order == GRID_SGATE
+    1, empty ? 0 : 1, isLast ? 1 : 0, ctx.oppWinning ? 1 : 0, ctx.friendWinning ? 1 : 0,
+    sHelp, sCont, Math.min(ctx.oppTrumpsOut, 6) / 6, ctx.trickCount / 10,
+  ];
+  let gi = GRID_BASE;
+  for (const g of ggates) for (const p of gprops) f[gi++] = g * p;
   return f;
 }
 
