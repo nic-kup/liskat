@@ -378,6 +378,8 @@
         return 'Keep your aces and trumps; these are the least useful cards to hold.';
     }
   }
+  // A card id ("D8") as a compact suit-glyph label ("♦8") for coach text.
+  const cardLabel = (id: string): string => (({ C: '♣', S: '♠', H: '♥', D: '♦' } as Record<string, string>)[id[0]] ?? '') + id.slice(1);
   // The "why this card" text for a hand card, or undefined if it isn't a suggested card.
   function coachReason(id: string): string | undefined {
     const b = coach?.bestCards?.find((x) => x.id === id);
@@ -971,6 +973,15 @@
           <div class="coachstrip">
             Eyes — declarer <strong>{coach.eyesDeclarer}</strong> · defenders <strong>{coach.eyesDefenders}</strong>
             {#if coach.trumpsOut != null} · <strong>{coach.trumpsOut}</strong> trump{coach.trumpsOut === 1 ? '' : 's'} still out{/if}
+          </div>
+        {/if}
+        <!-- The "why this card" reason, shown persistently (touch has no hover, so the
+             per-card bubble alone was invisible on phones). Names the ringed card(s). -->
+        {#if tutorial && round?.phase === 'playing' && isMyTurn() && coach?.bestCards?.length}
+          {@const bc = coach.bestCards[0]}
+          {@const why = coachReason(bc.id)}
+          <div class="coachplay">
+            💡 Play <strong>{cardLabel(bc.id)}</strong>{#if coach.bestCards.length > 1} or <strong>{cardLabel(coach.bestCards[1].id)}</strong>{/if}{#if why} — {why}{/if}
           </div>
         {/if}
         <div class="hand">
@@ -1596,6 +1607,19 @@
     color: var(--muted);
     margin-bottom: 4px;
   }
+  /* Persistent "why this card" line (green, to echo the ringed card). Primary coach
+     surface on touch, where the hover bubble never appears. */
+  .coachplay {
+    background: rgba(95, 208, 122, 0.12);
+    border: 1px solid rgba(95, 208, 122, 0.35);
+    border-radius: 10px;
+    padding: 7px 11px;
+    margin: 2px auto 6px;
+    max-width: 360px;
+    text-align: center;
+    line-height: 1.4;
+    font-size: 13px;
+  }
   /* best card glows green; a suggested discard glows the same */
   .handcard.coachbest,
   .handcard.coachsuggest {
@@ -1622,8 +1646,12 @@
     z-index: 6;
     pointer-events: none;
   }
-  .handcard:hover .coachbubble {
-    display: block;
+  /* Desktop nicety only: on touch the bubble would latch open after a tap, and the
+     persistent .coachplay line already carries the reason. */
+  @media (hover: hover) {
+    .handcard:hover .coachbubble {
+      display: block;
+    }
   }
   .coachbubble::after {
     content: '';
