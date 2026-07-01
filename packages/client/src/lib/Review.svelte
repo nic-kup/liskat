@@ -57,7 +57,9 @@
 
   const eyes = $derived.by(() => {
     if (!review.contract || review.contract.type === 'null') return null;
-    let decl = review.skat.reduce((n, id) => n + cardPoints(cardFromId(id)), 0); // buried skat is the declarer's
+    // Buried cards count for the declarer: the discard once they took the skat, else the dealt skat (hand game).
+    const buried = review.tookSkat && review.discard ? review.discard : review.skat;
+    let decl = buried.reduce((n, id) => n + cardPoints(cardFromId(id)), 0);
     let def = 0;
     const lastComplete = trickComplete ? dispTrick : dispTrick - 1;
     for (let t = 0; t <= lastComplete; t++) {
@@ -404,8 +406,8 @@
   /* Bot-pick / actually-played rings. Applied to a wrapper so they sit behind the
      card's rounded art. */
   .rcard { border-radius: 8%; }
-  .rcard.bot { box-shadow: 0 0 0 3px #5fd07a, 0 0 14px rgba(95, 208, 122, 0.7); }
-  .rcard.actual { box-shadow: 0 0 0 3px #ffb454, 0 0 14px rgba(255, 180, 84, 0.65); }
+  .rcard.bot { box-shadow: 0 0 0 2px #5fd07a, 0 0 5px rgba(95, 208, 122, 0.55); }
+  .rcard.actual { box-shadow: 0 0 0 2px #ffb454, 0 0 5px rgba(255, 180, 84, 0.5); }
 
   .controls {
     display: flex;
