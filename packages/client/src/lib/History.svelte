@@ -6,8 +6,9 @@
     history: HistoryEntry[];
     players: PlayerView[];
     matchOver?: boolean;
+    onReview?: (deal: number) => void; // click a played deal to step through it
   }
-  let { history, players, matchOver = false }: Props = $props();
+  let { history, players, matchOver = false, onReview }: Props = $props();
   let open = $state(false);
   const mySlot = $derived(players.find((p) => p.you)?.slot ?? -1);
   // Once the match is over, open the panel; on a phone it's shown centered as
@@ -36,7 +37,20 @@
         <tbody>
           {#each history as h, i}
             {@const prev = i > 0 ? history[i - 1].scores : [0, 0, 0]}
-            <tr>
+            {@const canReview = !h.passedIn && !!onReview}
+            <tr
+              class:clickable={canReview}
+              role={canReview ? 'button' : undefined}
+              tabindex={canReview ? 0 : undefined}
+              title={canReview ? 'Review this deal' : undefined}
+              onclick={() => canReview && onReview!(h.deal)}
+              onkeydown={(e) => {
+                if (canReview && (e.key === 'Enter' || e.key === ' ')) {
+                  e.preventDefault();
+                  onReview!(h.deal);
+                }
+              }}
+            >
               <td class="deal">{h.deal}</td>
               {#each players as p}
                 {@const slot = p.slot}
@@ -158,6 +172,16 @@
   }
   td.declarer {
     font-weight: 700;
+  }
+  tr.clickable {
+    cursor: pointer;
+  }
+  tr.clickable:hover td,
+  tr.clickable:focus-visible td {
+    background: rgba(255, 213, 74, 0.14);
+  }
+  tr.clickable:focus-visible {
+    outline: none;
   }
   .tag {
     display: inline-block;

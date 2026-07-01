@@ -30,6 +30,35 @@ export interface HistoryEntry {
   scores: number[];
 }
 
+// Post-game review of one finished deal (mirrors packages/server/src/review.ts).
+// Everything is slot-indexed and face-up; the client just renders + steps it.
+export interface ReviewPly {
+  trick: number; // 0-based trick index
+  pos: number; // 0..2 position within the trick
+  slot: number; // who played this card
+  card: string; // card id played
+  bestCard?: string; // the card the bot would have played (absent when only one legal card)
+  bestFeature?: string; // engine feature name behind the bot's pick, for the why-tooltip
+}
+
+export interface ReviewDeal {
+  deal: number;
+  dealerSlot: number;
+  viewerSlot: number; // which slot is "you" (rendered as the bottom hand)
+  hands: string[][]; // slot-indexed dealt hands (10 cards each)
+  skat: string[];
+  discard: string[] | null;
+  tookSkat: boolean;
+  declarerSlot: number | null;
+  contract: { type: 'suit' | 'grand' | 'null'; suit?: string } | null;
+  ouvert?: boolean;
+  tricks: { leader: number; cards: string[]; winner: number }[];
+  result: { won: boolean; value: number; schneider: boolean; schwarz: boolean; cardPoints: number | null } | null;
+  scores: number[];
+  passedIn: boolean;
+  plies: ReviewPly[];
+}
+
 // Tutorial-only per-turn hint data the server attaches to the learner's round view.
 export interface CoachView {
   bidCeil?: number;

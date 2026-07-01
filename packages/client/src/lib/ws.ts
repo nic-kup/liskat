@@ -3,7 +3,7 @@
 
 import { writable } from 'svelte/store';
 import type { Card, Contract, Announcements, MatchFormat } from '@liskat/engine';
-import type { LobbyEntry, TableView } from './types.ts';
+import type { LobbyEntry, TableView, ReviewDeal } from './types.ts';
 
 export interface ConnState {
   connected: boolean;
@@ -38,6 +38,9 @@ function setLs(key: string, value: string | null): void {
     /* storage unavailable (private mode) */
   }
 }
+
+// The deal the user is currently reviewing (post-game step-through), or null.
+export const reviewStore = writable<ReviewDeal | null>(null);
 
 export const conn = writable<ConnState>({
   connected: false,
@@ -234,10 +237,15 @@ export function connect(): void {
       return;
     }
     if (msg.t === 'pong') return; // liveness reply; the timestamp above is all we need
+    if (msg.t === 'review') {
+      reviewStore.set(msg.data as ReviewDeal);
+      return;
+    }
     // Any authoritative table state ends the uncertainty about our last action:
     // it either reflects the move or re-syncs us to the truth. Either way there's
     // nothing left to replay. (`left` means we're no longer at a table at all.)
     if (msg.t === 'table' || msg.t === 'left') pendingAction = null;
+    if (msg.t === 'left') reviewStore.set(null); // no table, no review
     conn.update((s) => {
       switch (msg.t) {
         case 'welcome':
@@ -465,6 +473,15 @@ export function leaveTable(): void {
 
 export function listTables(): void {
   send({ t: 'listTables' });
+}
+
+// Ask the server for a step-through review of a finished deal (1-based deal #);
+// the reply lands in reviewStore. closeReview() dismisses the overlay locally.
+export function requestReview(deal: number): void {
+  send({ t: 'reviewDeal', deal });
+}
+export function closeReview(): void {
+  reviewStore.set(null);
 }
 
 export function sendChat(text: string): void {

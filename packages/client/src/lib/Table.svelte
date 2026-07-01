@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable, addBot } from './ws.ts';
+  import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable, addBot, reviewStore, requestReview, closeReview } from './ws.ts';
   import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue, leadSuit } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
   import SuitPip from './SuitPip.svelte';
   import Chat from './Chat.svelte';
   import History from './History.svelte';
+  import Review from './Review.svelte';
   import { identityForSlot } from './players.ts';
   import { crossfade } from 'svelte/transition';
   import { flip } from 'svelte/animate';
@@ -1018,8 +1019,14 @@
       {/if}
 
 
-      <History history={view.history} players={view.players} matchOver={view.status === 'over'} />
+      <History history={view.history} players={view.players} matchOver={view.status === 'over'} onReview={requestReview} />
       <Chat messages={view.chat} />
+    {/if}
+
+    {#if $reviewStore}
+      {#key $reviewStore.deal}
+        <Review review={$reviewStore} players={view.players} onClose={closeReview} />
+      {/key}
     {/if}
 
     {#if $conn.error}<p class="error">{$conn.error}</p>{/if}

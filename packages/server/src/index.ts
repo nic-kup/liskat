@@ -11,6 +11,7 @@ import { Lobby } from './lobby.ts';
 import type { Table } from './table.ts';
 import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback, readFeedback } from './feedback.ts';
+import { buildReviewDeal } from './review.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId, accountCount } from './accounts.ts';
 import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, matchById, MATCH_TYPES, type MatchType } from './ratings.ts';
 import { writeMatchDetail, readMatchDetail } from './history.ts';
@@ -449,6 +450,20 @@ function handle(client: Client, msg: ClientMessage): void {
       if (!client.tableId) return;
       const table = lobby.get(client.tableId);
       if (table && table.addChat(client.id, msg.text)) broadcastTable(table);
+      return;
+    }
+
+    case 'reviewDeal': {
+      if (!client.tableId) return;
+      const table = lobby.get(client.tableId);
+      if (!table) return;
+      const rep = table.replay[msg.deal - 1];
+      // Only finished deals are reviewable (a passed-in deal is finished with no play).
+      if (!rep || (rep.result === null && !rep.passedIn)) {
+        send(client.ws, { t: 'error', msg: 'that deal is not ready to review' });
+        return;
+      }
+      send(client.ws, { t: 'review', deal: msg.deal, data: buildReviewDeal(rep, table.slotOf(client.id)) });
       return;
     }
 

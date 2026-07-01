@@ -18,6 +18,7 @@ export type ClientMessage =
   | { t: 'leaveTable' }
   | { t: 'listTables' }
   | { t: 'chat'; text: string }
+  | { t: 'reviewDeal'; deal: number } // ask to review a finished deal (1-based) at your table
   | { t: 'ping' } // client liveness probe; server replies with `pong`
   // `resend` marks an action replayed after a reconnect (the original may have
   // been lost on a half-open socket). If it's already been applied it's now
@@ -42,6 +43,7 @@ export type ServerMessage =
   | { t: 'welcome'; playerId: string }
   | { t: 'tables'; tables: LobbyEntry[] }
   | { t: 'table'; view: unknown } // a personalized TableView (see view.ts)
+  | { t: 'review'; deal: number; data: unknown } // a step-through ReviewDeal (see review.ts)
   | { t: 'queued'; format: MatchFormat } // you're in the matchmaking queue
   | { t: 'unqueued' } // you left the queue
   | { t: 'queues'; counts: Record<string, number> } // live queue sizes per format

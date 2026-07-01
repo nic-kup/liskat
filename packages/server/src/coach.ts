@@ -64,7 +64,7 @@ function sentenceFits(feat: string, value: number): boolean {
 // contributions are pre-sorted by |contribution| desc). If none qualifies -- a "least-bad" safe low
 // card chosen for what it AVOIDS, not a positive virtue -- return '' so the client shows the honest
 // generic line rather than a cherry-picked, false-sounding reason.
-function topFeature(e: CardExplanation): string {
+export function topFeature(e: CardExplanation): string {
   for (const k of e.contributions) if (k.contribution > 0 && sentenceFits(k.feature, k.value)) return k.feature;
   return '';
 }
