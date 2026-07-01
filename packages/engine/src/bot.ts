@@ -58,7 +58,13 @@ export {
   type CardContribution,
 } from './bot-play-score.ts';
 export { mcEvaluateHand, mcEvaluateHand12 } from './bot-mc.ts';
-export { chooseDiscardScored } from './bot-play-score.ts';
+export {
+  chooseDiscardScored,
+  explainDiscard,
+  DISC_SUIT_FEATURE_NAMES,
+  DISC_NULL_FEATURE_NAMES,
+  type DiscardContribution,
+} from './bot-play-score.ts';
 export { mcDeclareAction } from './bot-mc.ts';
 // Public memory helpers (used by the tutorial coach to show trumps still outstanding).
 export { buildMemory, outstandingTrumps, type PlayMemory } from './bot-memory.ts';

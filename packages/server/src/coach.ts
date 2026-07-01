@@ -13,10 +13,12 @@ import {
   explainCardsScored,
   buildMemory,
   outstandingTrumps,
+  explainDiscard,
   DEFAULT_PARAMS,
   type RoundState,
   type Contract,
   type Seat,
+  type Card,
   type CardExplanation,
 } from '@liskat/engine';
 
@@ -27,6 +29,7 @@ export interface CoachView {
   // declaring (viewer is the declarer)
   takeSkat?: boolean; // 'choose' step: recommend taking the skat
   discardIds?: string[]; // 'discard' step: the two suggested cards to bury
+  discardReason?: string; // 'discard' step: why those two ('void'|'tenbare'|'aces'|'' generic)
   contractKey?: string; // 'contract' step: the suggested game key
   // playing (best card(s) only on the viewer's turn)
   bestCards?: { id: string; feature: string }[]; // 1-2 best cards + each's top positive feature
@@ -65,6 +68,19 @@ function topFeature(e: CardExplanation): string {
   for (const k of e.contributions) if (k.contribution > 0 && sentenceFits(k.feature, k.value)) return k.feature;
   return '';
 }
+// Headline WHY the learned discard model picked these two cards. Walk its feature contributions
+// (|contribution| desc) and return the first interpretable, always-true positive driver: a created
+// side-suit void, a banked bare ten, or (null) tucked-away high cards. Anything else -> '' so the
+// client shows a neutral line instead of a cherry-picked, false-sounding one (cf. sentenceFits).
+function discardReason(a: Card, b: Card, hand12: Card[], contract: Contract): string {
+  for (const k of explainDiscard(a, b, hand12, contract, PLAYW)) {
+    if (k.contribution <= 0) continue;
+    if (k.feature === 'voids' && k.value >= 1) return 'void';
+    if (k.feature === 'tenBare' && k.value >= 1) return 'tenbare';
+    if (k.feature === 'ace' && k.value >= 1) return 'aces'; // null discard: bury high cards
+  }
+  return '';
+}
 
 export function computeCoach(r: RoundState, role: Seat): CoachView {
   const c: CoachView = {};
@@ -89,8 +105,12 @@ export function computeCoach(r: RoundState, role: Seat): CoachView {
       // The UI merges discard + game choice into this step, so surface BOTH: the two cards to
       // bury, and the recommended game (the bot's intended contract for the 12-card hand).
       const sug = mcDeclareAction(r, role, DEFAULT_PARAMS);
-      if (sug && sug.type === 'discard') c.discardIds = sug.cards.map(cardId);
-      c.contractKey = contractKey(mcEvaluateHand12(r.hands[role]).contract);
+      const intended = mcEvaluateHand12(r.hands[role]).contract;
+      if (sug && sug.type === 'discard') {
+        c.discardIds = sug.cards.map(cardId);
+        c.discardReason = discardReason(sug.cards[0], sug.cards[1], r.hands[role], intended);
+      }
+      c.contractKey = contractKey(intended);
     } else if (r.declareStep === 'contract') {
       // Hand game (skat declined): only the game is chosen here.
       const sug = mcDeclareAction(r, role, DEFAULT_PARAMS);

@@ -621,6 +621,26 @@ export function chooseDiscardScored(hand12: Card[], contract: Contract, w: PlayW
   return best;
 }
 
+// Feature names for the two discard models (order matches discSuitFeatures / discNullFeatures).
+export const DISC_SUIT_FEATURE_NAMES = ['pts', 'trump', 'ace', 'tenBare', 'voids', 'str'] as const;
+export const DISC_NULL_FEATURE_NAMES = ['rank', 'ace', 'voids', 'low'] as const;
+
+export interface DiscardContribution { feature: string; value: number; weight: number; contribution: number; }
+
+// Explain WHY a chosen discard pair scores as it does: per-feature value x weight, sorted by
+// |contribution| desc (mirrors explainCardsScored for card play). Same weights/features as
+// chooseDiscardScored, so the tutorial coach can headline the actual learned driver.
+export function explainDiscard(a: Card, b: Card, hand12: Card[], contract: Contract, w: PlayWeights): DiscardContribution[] {
+  const isNull = contract.type === 'null';
+  const isGrand = contract.type === 'grand';
+  const weights = (isNull ? w.discNull : isGrand ? (w.discGrand ?? w.discSuit) : w.discSuit) ?? [];
+  const names = isNull ? DISC_NULL_FEATURE_NAMES : DISC_SUIT_FEATURE_NAMES;
+  const f = isNull ? discNullFeatures(a, b, hand12) : discSuitFeatures(a, b, hand12, contract);
+  const out = f.map((value, i) => ({ feature: names[i], value, weight: weights[i] ?? 0, contribution: value * (weights[i] ?? 0) }));
+  out.sort((x, y) => Math.abs(y.contribution) - Math.abs(x.contribution));
+  return out;
+}
+
 // A hand-tuned starting point: encodes ordinary club-level play so the model is
 // sane before any evolution (and serves as one GA anchor). Suit/grand: lead low,
 // pull trumps while they're out, cash safe masters, win cheaply, don't feed

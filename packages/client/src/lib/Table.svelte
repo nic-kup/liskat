@@ -364,6 +364,19 @@
     if (!key) return '';
     return COACH_SUIT_NAME[key] ?? (key === 'grand' ? 'Grand' : key === 'null' ? 'Null' : key);
   }
+  // Why the coach buries these two cards, from the learned discard model (coach.discardReason).
+  function coachDiscardWhy(reason?: string): string {
+    switch (reason) {
+      case 'void':
+        return 'They empty a side suit, so you can trump it once your trumps are gone.';
+      case 'tenbare':
+        return "They bank a bare ten's points safely in the skat.";
+      case 'aces':
+        return 'They tuck away high cards you would otherwise be forced to win.';
+      default:
+        return 'Keep your aces and trumps; these are the least useful cards to hold.';
+    }
+  }
   // The "why this card" text for a hand card, or undefined if it isn't a suggested card.
   function coachReason(id: string): string | undefined {
     const b = coach?.bestCards?.find((x) => x.id === id);
@@ -826,7 +839,7 @@
               {#if round.declareStep === 'choose'}
                 <h3>You won the bid at {round.bid}</h3>
                 {#if tutorial && coach && coach.takeSkat != null}
-                  <div class="coachhint">💡 {coach.takeSkat ? 'Pick up the Skat — its two cards usually improve your hand and let you bury liabilities.' : 'Play it as a Hand (skip the Skat) — your ten cards are strong on their own, and Hand scores one multiplier higher.'}</div>
+                  <div class="coachhint">💡 {coach.takeSkat ? 'Pick up the Skat. Its two cards usually improve your hand and let you bury liabilities.' : 'Play it as a Hand (skip the Skat). Your ten cards are strong on their own, and Hand scores one multiplier higher.'}</div>
                 {/if}
                 <div class="bigactions">
                   <button class="primary" class:reco={tutorial && coach?.takeSkat === true} onclick={takeSkat}>Pick up Skat</button>
@@ -835,7 +848,7 @@
               {:else}
                 {#if round.declareStep === 'discard'}
                   <h3>Name your game, and tap 2 cards below for the Skat ({selected.length}/2)</h3>
-                  {#if tutorial && coach && (coach.contractKey || coach.discardIds)}<div class="coachhint">💡 I'd play <strong>{coachContractLabel(coach.contractKey)}</strong> (ringed). Bury the two glowing cards — keep aces and trumps; shed point-cards or empty a side suit.</div>{/if}
+                  {#if tutorial && coach && (coach.contractKey || coach.discardIds)}<div class="coachhint">💡 I'd play a <strong>{coachContractLabel(coach.contractKey)}</strong> game and bury the two glowing cards. {coachDiscardWhy(coach.discardReason)}</div>{/if}
                 {:else}
                   <h3>Choose your game</h3>
                   {#if tutorial && coach?.contractKey}<div class="coachhint">💡 I'd play {coachContractLabel(coach.contractKey)} (glowing). It must be worth at least your bid of {round.bid}.</div>{/if}

@@ -36,6 +36,7 @@ export interface CoachView {
   bidContractKey?: string;
   takeSkat?: boolean;
   discardIds?: string[];
+  discardReason?: string;
   contractKey?: string;
   bestCards?: { id: string; feature: string }[];
   onlyOption?: boolean;
