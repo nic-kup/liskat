@@ -46,6 +46,10 @@ export interface PlayWeights {
   grandDef?: number[];
   nullDecl: number[];
   nullDef: number[];
+  // Optional PER-SEAT null-defender vectors (before/after the declarer), mirroring the suit/grand
+  // split. Selected by seat in playModel; ABSENT -> both fall back to the shared nullDef.
+  nullDefBefore?: number[];
+  nullDefAfter?: number[];
   // Optional PER-SEAT suit-defender vectors. The two defenders sit in structurally
   // different spots: "before" = just before the declarer (declarer+2, wants the lead
   // to sandwich the declarer in middle-hand), "after" = just after (declarer+1, plays
@@ -153,7 +157,13 @@ for (const g of GRID_SGATE) for (const p of GRID_PCARD) GRID_FEATURES.push(`g_${
 export const SUIT_FEATURES: readonly string[] = [...HAND_SUIT_FEATURES, ...GRID_FEATURES];
 const GRID_BASE = HAND_SUIT_FEATURES.length; // index where the generated grid begins (34)
 
-export const NULL_FEATURES = [
+// The 7 base null signals. Null is a different game (no trumps, no card points -- the declarer must
+// LOSE every trick), so the suit/grand grid doesn't transfer; instead we take the quadratic
+// expansion of these 7 (products x_i*x_j, i<=j) so the GA can weight interactions the linear model
+// can't -- e.g. nfollow_win*nfollow_rank = "how BAD a forced win is" (winning with a high card).
+// The first 3 signals fire only on LEAD and the last 4 only on FOLLOW, so the 12 lead x follow
+// cross-products are ALWAYS 0 -- dropped as dead. That leaves 6 lead x lead + 10 follow x follow.
+const NULL_BASE = [
   'nlead_rank', // leading: null-rank of the card (7 low .. A high)
   'nlead_len', // leading: suit length of the card
   'nlead_declvoid', // leading: declarer is void in this suit (defender: avoid; can't be trapped there)
@@ -162,6 +172,17 @@ export const NULL_FEATURES = [
   'nfollow_voidrank', // following+void-in-led: rank of the card we discard
   'nfollow_voidlen', // following+void-in-led: suit length of the card we discard
 ] as const;
+const NULL_NBASE = NULL_BASE.length; // 7
+const NULL_NLEAD = 3; // features 0..2 are lead-only; 3..6 follow-only
+// Same-phase products only (i<=j): the cross-phase lead x follow ones are structurally 0.
+const NULL_PROD_PAIRS: [number, number][] = [];
+for (let i = 0; i < NULL_NBASE; i++) for (let j = i; j < NULL_NBASE; j++) {
+  if (i < NULL_NLEAD && j >= NULL_NLEAD) continue; // drop the dead lead x follow cross-product
+  NULL_PROD_PAIRS.push([i, j]);
+}
+const NULL_PRODUCTS = NULL_PROD_PAIRS.map(([i, j]) => `n_${NULL_BASE[i]}__x__${NULL_BASE[j]}`);
+// 7 linear + 16 live products = 23.
+export const NULL_FEATURES: readonly string[] = [...NULL_BASE, ...NULL_PRODUCTS];
 
 // Discard is scored over candidate PAIRS of cards to bury (see chooseDiscardScored).
 export const DISC_SUIT_FEATURES = [
@@ -435,17 +456,22 @@ function nullFeatures(c: Card, ctx: Ctx): number[] {
   // Declarer void in this card's suit (defender perspective; from public voids).
   const declVoid = ctx.declarer !== null && ctx.mem.voids[ctx.declarer].has(c.suit as any) ? 1 : 0;
 
-  const f = new Array<number>(NULL_NF).fill(0);
+  // The 7 base signals (lead-only 0..2, follow-only 3..6), then the full quadratic expansion.
+  const b = new Array<number>(NULL_NBASE).fill(0);
   if (empty) {
-    f[0] = rank;
-    f[1] = len;
-    f[2] = declVoid;
+    b[0] = rank;
+    b[1] = len;
+    b[2] = declVoid;
   } else {
-    f[3] = win;
-    f[4] = rank;
-    f[5] = voidInLed * rank;
-    f[6] = voidInLed * len;
+    b[3] = win;
+    b[4] = rank;
+    b[5] = voidInLed * rank;
+    b[6] = voidInLed * len;
   }
+  const f = new Array<number>(NULL_NF).fill(0);
+  for (let i = 0; i < NULL_NBASE; i++) f[i] = b[i]; // linear terms
+  let k = NULL_NBASE;
+  for (const [i, j] of NULL_PROD_PAIRS) f[k++] = b[i] * b[j]; // live same-phase products
   return f;
 }
 
@@ -464,8 +490,12 @@ function playModel(ctx: Ctx, w: PlayWeights): { weights: number[]; feats: (c: Ca
   const isNull = ctx.contract.type === 'null';
   const isGrand = ctx.contract.type === 'grand';
   let weights: number[];
-  if (isNull) weights = ctx.iAmDeclarer ? w.nullDecl : w.nullDef;
-  else if (ctx.iAmDeclarer) weights = isGrand ? (w.grandDecl ?? w.suitDecl) : w.suitDecl;
+  if (isNull) {
+    // Null DEFENDER is also per-seat (before/after the declarer): the two seats trap the declarer
+    // differently. Fall back to the shared nullDef when a split vector isn't set.
+    weights = ctx.iAmDeclarer ? w.nullDecl
+      : ctx.defPosGood ? (w.nullDefBefore ?? w.nullDef) : (w.nullDefAfter ?? w.nullDef);
+  } else if (ctx.iAmDeclarer) weights = isGrand ? (w.grandDecl ?? w.suitDecl) : w.suitDecl;
   else {
     // Suit/grand DEFENDER: pick the per-seat vector for my position relative to the
     // declarer (before/after), falling back through the shared grand/suit vectors when a
