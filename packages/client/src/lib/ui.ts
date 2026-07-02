@@ -9,7 +9,7 @@
 // URL-aware for free.
 import { writable } from 'svelte/store';
 
-export type Page = 'lobby' | 'account' | 'howto';
+export type Page = 'lobby' | 'account' | 'howto' | 'leaderboard';
 
 const HOWTO_PATH = '/how-to-play';
 

@@ -48,6 +48,24 @@
     loadingMatch = false;
   }
 
+  // Rating trajectory for one match type, oldest first: the rating before the first
+  // ranked match in the (last-50) history plus the rating after each one. Null when
+  // there's nothing to draw. Powers the sparkline in each rating card.
+  function ratingSeries(type: string): number[] | null {
+    const chron = (profile?.history ?? []).filter((m) => m.ranked && m.type === type).reverse();
+    if (chron.length === 0) return null;
+    return [myResult(chron[0]).ratingBefore, ...chron.map((m) => myResult(m).ratingAfter)];
+  }
+  // The series scaled into sparkline coordinates (viewBox 120x32), flat lines centered.
+  function sparkPoints(vals: number[]): string {
+    const w = 120, h = 32, pad = 2;
+    const min = Math.min(...vals);
+    const span = Math.max(Math.max(...vals) - min, 1);
+    return vals
+      .map((v, i) => `${(pad + (i * (w - 2 * pad)) / (vals.length - 1)).toFixed(1)},${(h - pad - ((v - min) / span) * (h - 2 * pad)).toFixed(1)}`)
+      .join(' ');
+  }
+
   function placeLabel(p: number): string {
     return p === 1 ? '1st' : p === 2 ? '2nd' : '3rd';
   }
@@ -184,10 +202,16 @@
     <div class="ratings">
       {#each TYPE_ORDER as t}
         {@const r = profile.ratings?.[t]}
+        {@const series = ratingSeries(t)}
         <div class="rcard">
           <div class="rlabel">{TYPE_LABELS[t]}</div>
           <div class="rval">{r?.rating ?? 1500}</div>
           <div class="rgames">{r?.games ?? 0} {(r?.games ?? 0) === 1 ? 'match' : 'matches'}{(r?.games ?? 0) < 10 ? ' · provisional' : ''}</div>
+          {#if series}
+            <svg class="spark" class:down={series[series.length - 1] < series[0]} viewBox="0 0 120 32" preserveAspectRatio="none" role="img" aria-label="rating over your recent matches">
+              <polyline points={sparkPoints(series)} fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+            </svg>
+          {/if}
         </div>
       {/each}
     </div>
@@ -293,6 +317,18 @@
   .rgames {
     font-size: 11px;
     color: var(--muted);
+  }
+  /* Rating trajectory over the recent ranked matches of this type. */
+  .spark {
+    display: block;
+    width: 100%;
+    height: 32px;
+    margin-top: 8px;
+    color: #7fe3a3;
+    opacity: 0.9;
+  }
+  .spark.down {
+    color: #ff8a80;
   }
   table.list {
     width: 100%;

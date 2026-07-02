@@ -5,6 +5,7 @@
   import Table from './lib/Table.svelte';
   import AccountPage from './lib/AccountPage.svelte';
   import HowTo from './lib/HowTo.svelte';
+  import Leaderboard from './lib/Leaderboard.svelte';
 
   connect();
 
@@ -34,6 +35,8 @@
     <AccountPage />
   {:else if $page === 'howto'}
     <HowTo />
+  {:else if $page === 'leaderboard'}
+    <Leaderboard />
   {:else}
     <Lobby />
     {#if invitedTable && !inviteDone}

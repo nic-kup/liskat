@@ -2,7 +2,7 @@
 // store. Components read `conn` and call the action helpers.
 
 import { writable } from 'svelte/store';
-import type { Card, Contract, Announcements, MatchFormat } from '@liskat/engine';
+import type { Card, Contract, Announcements, MatchFormat, BotDifficulty } from '@liskat/engine';
 import type { LobbyEntry, TableView, ReviewDeal } from './types.ts';
 
 export interface ConnState {
@@ -443,6 +443,22 @@ export async function fetchMatch(id: string): Promise<MatchDetail | null> {
   }
 }
 
+// One leaderboard row; the server returns the top accounts per match type.
+export interface LeaderboardRow {
+  username: string;
+  rating: number;
+  games: number;
+}
+export async function fetchLeaderboard(): Promise<Record<string, LeaderboardRow[]> | null> {
+  try {
+    const res = await fetch('/leaderboard');
+    const data = await res.json();
+    return data.ok ? (data.board as Record<string, LeaderboardRow[]>) : null;
+  } catch {
+    return null;
+  }
+}
+
 export function logout(): void {
   const token = ls(SESSION_KEY);
   if (token) void authPost('logout', { token });
@@ -464,8 +480,14 @@ export function quickMatch(format?: MatchFormat): void {
 
 // Start a solo practice game against two bots (unrated, no queue). With tutorial=true the
 // game is untimed and the server attaches coaching hints to your view (the how-to tutorial).
-export function practiceMatch(format?: MatchFormat, tutorial = false): void {
-  send({ t: 'practiceMatch', format, tutorial });
+// difficulty picks the bots' strength preset (softmax temperature; 'hard' = production).
+export function practiceMatch(format?: MatchFormat, tutorial = false, difficulty: BotDifficulty = 'hard'): void {
+  send({ t: 'practiceMatch', format, tutorial, difficulty });
+}
+
+// Vote to replay the finished match with the same seats (bots agree automatically).
+export function requestRematch(): void {
+  send({ t: 'rematch' });
 }
 
 export function cancelMatch(): void {

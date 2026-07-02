@@ -1,9 +1,9 @@
 // View shapes the server sends us. Mirrors packages/server/src/table.ts and
 // protocol.ts. Kept as a thin local copy to avoid importing server runtime.
 
-import type { Card, Contract, Announcements, MatchFormat, Seat } from '@liskat/engine';
+import type { Card, Contract, Announcements, MatchFormat, Seat, BotDifficulty } from '@liskat/engine';
 
-export type { Card, Contract, Announcements, MatchFormat, Seat };
+export type { Card, Contract, Announcements, MatchFormat, Seat, BotDifficulty };
 
 export interface LobbyEntry {
   id: string;
@@ -118,4 +118,5 @@ export interface TableView {
   round?: RoundView;
   chat: { nick: string; slot: number; text: string }[];
   history: HistoryEntry[];
+  rematchVotes: number[]; // slots that want to replay the finished match
 }

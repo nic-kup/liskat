@@ -1,6 +1,6 @@
 <script lang="ts">
   import { conn, setNick, quickMatch, practiceMatch, cancelMatch, createTable, joinTable } from './ws.ts';
-  import type { MatchFormat } from './types.ts';
+  import type { BotDifficulty, MatchFormat } from './types.ts';
   import Feedback from './Feedback.svelte';
   import Account from './Account.svelte';
   import { page } from './ui.ts';
@@ -39,9 +39,13 @@
     ensureNick();
     quickMatch(format);
   }
-  function onPractice() {
+  // Clicking Practice swaps the tile for the three difficulty buttons; a second
+  // click on one of them starts the game.
+  let pickDifficulty = $state(false);
+  function onPractice(difficulty: BotDifficulty) {
+    pickDifficulty = false;
     ensureNick();
-    practiceMatch({ kind: 'deals', deals: 3 });
+    practiceMatch({ kind: 'deals', deals: 3 }, false, difficulty);
   }
   function onCreatePrivate() {
     if (!account) {
@@ -68,13 +72,14 @@
 
   function onKey(e: KeyboardEvent) {
     if (e.key === 'Escape' && showCreate) showCreate = false;
+    if (e.key === 'Escape' && pickDifficulty) pickDifficulty = false;
   }
 </script>
 
 <svelte:window onkeydown={onKey} />
 
 <button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
-<div class="topright"><button class="navlink" onclick={() => ($page = 'howto')}>How to play</button><Account /></div>
+<div class="topright"><button class="navlink" onclick={() => ($page = 'leaderboard')}>Leaderboard</button><button class="navlink" onclick={() => ($page = 'howto')}>How to play</button><Account /></div>
 <div class="bottombar"><Feedback /></div>
 
 <div class="lobby">
@@ -89,11 +94,20 @@
           <span class="queue">{n} in queue</span>
         </button>
       {/each}
-      <button class="qbtn practice" onclick={onPractice}>
-        <span class="big">Practice</span>
-        <span class="sub">vs bots</span>
-        <span class="queue">play now · unrated</span>
-      </button>
+      {#if pickDifficulty}
+        <div class="qbtn practice difficulty">
+          <span class="sub">Bot strength</span>
+          <button class="diffbtn" onclick={() => onPractice('easy')}>Easy</button>
+          <button class="diffbtn" onclick={() => onPractice('medium')}>Medium</button>
+          <button class="diffbtn" onclick={() => onPractice('hard')}>Hard</button>
+        </div>
+      {:else}
+        <button class="qbtn practice" onclick={() => (pickDifficulty = true)}>
+          <span class="big">Practice</span>
+          <span class="sub">vs bots</span>
+          <span class="queue">play now · unrated</span>
+        </button>
+      {/if}
     </div>
   </section>
 
@@ -227,6 +241,26 @@
   }
   .qbtn.practice:hover {
     background: rgba(255, 167, 51, 0.28);
+  }
+  /* The tile in its second state: three difficulty buttons where the label was. */
+  .qbtn.practice.difficulty {
+    cursor: default;
+    gap: 6px;
+  }
+  .qbtn.practice.difficulty:hover {
+    background: rgba(255, 167, 51, 0.12);
+    transform: none;
+  }
+  .diffbtn {
+    width: 100%;
+    padding: 6px 10px !important;
+    text-align: left;
+    font-weight: 600;
+    border-color: rgba(255, 167, 51, 0.45) !important;
+    background: rgba(255, 167, 51, 0.14) !important;
+  }
+  .diffbtn:hover {
+    background: rgba(255, 167, 51, 0.32) !important;
   }
   .qbtn .big {
     font-size: 20px;

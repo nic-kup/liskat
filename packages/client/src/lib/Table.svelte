@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable, addBot, reviewStore, requestReview, closeReview } from './ws.ts';
+  import { conn, bid, hold, pass, takeSkat, playHand, discard, declareContract, playCard, leaveTable, addBot, reviewStore, requestReview, closeReview, requestRematch } from './ws.ts';
   import { cardId, nextBid, sortHand, countMatadors, previewGameValue, baseValue, leadSuit } from '@liskat/engine';
   import type { Card, Contract, TableView } from './types.ts';
   import CardView from './Card.svelte';
@@ -1037,10 +1037,20 @@
 
       {#if view.status === 'over' && view.match}
         {@const wid = identityForSlot(view.match.winner ?? 0)}
+        {@const tableFull = view.players.every((p) => p.occupied)}
+        {@const iVoted = view.rematchVotes?.includes(mySlot) ?? false}
+        {@const humanCount = view.players.filter((p) => p.occupied).length}
         <div class="gameover">
           <h2>Match over. Winner: <span class="marker" style="color:{wid.color}">{wid.marker}</span> {slotName(view.match.winner ?? 0)}</h2>
           <p>{view.players.map((p) => `${p.nick}: ${view.match!.scores[p.slot]}`).join(' · ')}</p>
-          <button class="primary" onclick={leaveTable}>Back to lobby</button>
+          <div class="overbtns">
+            {#if tableFull}
+              <button class="primary" disabled={iVoted} onclick={requestRematch}>
+                {#if iVoted}Waiting for the others ({view.rematchVotes.length}/{humanCount})…{:else}Rematch{/if}
+              </button>
+            {/if}
+            <button class:primary={!tableFull} onclick={leaveTable}>Back to lobby</button>
+          </div>
         </div>
       {/if}
 
@@ -1770,6 +1780,12 @@
   .gameover,
   .result {
     text-align: center;
+  }
+  .overbtns {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
   }
   .waiting {
     margin-top: 8vh;
