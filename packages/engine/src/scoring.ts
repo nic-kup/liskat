@@ -110,8 +110,14 @@ export function computeGameValue(
   }
 
   const points = outcome.declarerCardPoints;
-  const schneider = points >= 90;
-  const schwarz = outcome.defenderTricks === 0;
+  // Schneider/schwarz raise the game value for WHICHEVER side achieves them (ISkO):
+  // the declarer makes schneider at 90+, but is *made* schneider when held to <=30
+  // (the defenders reached 90) -- both add the multiplier. Likewise schwarz applies
+  // when either side takes no trick (defenders none = declarer schwarz; declarer none
+  // = declarer made schwarz). This matters on lost games: a schneidered/schwarzed
+  // declarer is charged the higher value.
+  const schneider = points >= 90 || points <= 30;
+  const schwarz = outcome.defenderTricks === 0 || outcome.declarerWonATrick === false;
   const madePrimary = points >= 61; // need more than half of 120
 
   const base = baseValue(contract);

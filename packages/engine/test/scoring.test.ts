@@ -57,6 +57,39 @@ test('schneider adds a multiplier and is detected at 90+', () => {
   assert.ok(r.won);
 });
 
+test('declarer held to <=30 is schneidered: multiplier includes schneider, bigger loss', () => {
+  const clubs: Contract = { type: 'suit', suit: 'C' };
+  const declarerCards = [c('CJ'), c('SJ')]; // with 2
+  const r = computeGameValue(
+    clubs,
+    declarerCards,
+    { declarerCardPoints: 25, defenderTricks: 8, declarerWonATrick: true },
+    noAnn,
+    18,
+  );
+  // 12 * (2 matadors + 1 game + 1 schneider-against) = 48, lost
+  assert.ok(r.schneider);
+  assert.equal(r.value, 48);
+  assert.ok(!r.won);
+});
+
+test('declarer takes no trick is made schwarz: schneider+schwarz multipliers apply', () => {
+  const clubs: Contract = { type: 'suit', suit: 'C' };
+  const declarerCards = [c('CJ'), c('SJ')]; // with 2
+  const r = computeGameValue(
+    clubs,
+    declarerCards,
+    { declarerCardPoints: 0, defenderTricks: 10, declarerWonATrick: false },
+    noAnn,
+    18,
+  );
+  // 12 * (2 + 1 game + 1 schneider + 1 schwarz) = 60, lost
+  assert.ok(r.schneider);
+  assert.ok(r.schwarz);
+  assert.equal(r.value, 60);
+  assert.ok(!r.won);
+});
+
 test('failing to reach 61 loses the game', () => {
   const clubs: Contract = { type: 'suit', suit: 'C' };
   const declarerCards = [c('CJ'), c('SJ')];
