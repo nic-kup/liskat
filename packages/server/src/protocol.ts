@@ -1,7 +1,7 @@
 // The wire protocol between client and server. All messages are JSON objects
 // with a `t` (type) discriminator.
 
-import type { Card, Contract, Announcements, MatchFormat } from '@liskat/engine';
+import type { Card, Contract, Announcements, MatchFormat, BotDifficulty } from '@liskat/engine';
 
 // ---- Client -> Server ------------------------------------------------------
 
@@ -12,10 +12,11 @@ export type ClientMessage =
   | { t: 'createTable'; visibility: 'private' | 'public'; format: MatchFormat; timed?: boolean }
   | { t: 'joinTable'; tableId: string }
   | { t: 'quickMatch'; format?: MatchFormat }
-  | { t: 'practiceMatch'; format?: MatchFormat; tutorial?: boolean } // solo game vs two bots; tutorial = untimed + coach hints
+  | { t: 'practiceMatch'; format?: MatchFormat; tutorial?: boolean; difficulty?: BotDifficulty } // solo game vs two bots; tutorial = untimed + coach hints
   | { t: 'addBot' } // fill an open seat at your private table with a bot
   | { t: 'cancelMatch' }
   | { t: 'leaveTable' }
+  | { t: 'rematch' } // vote to replay the finished match with the same seats
   | { t: 'listTables' }
   | { t: 'chat'; text: string }
   | { t: 'reviewDeal'; deal: number } // ask to review a finished deal (1-based) at your table

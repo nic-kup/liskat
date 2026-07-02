@@ -13,10 +13,10 @@ import type { ClientMessage, ServerMessage } from './protocol.ts';
 import { recordFeedback, readFeedback } from './feedback.ts';
 import { buildReviewDeal } from './review.ts';
 import { initAccounts, register, login, logout, userIdForToken, usernameForId, accountCount } from './accounts.ts';
-import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, matchById, MATCH_TYPES, type MatchType } from './ratings.ts';
+import { initRatings, recordMatch, ratingsFor, historyFor, ratingOf, applyPenalty, matchCount, ratedPlayerCount, matchById, leaderboardFor, MATCH_TYPES, type MatchType } from './ratings.ts';
 import { writeMatchDetail, readMatchDetail } from './history.ts';
 import { Matchmaker } from './matchmaker.ts';
-import type { MatchFormat } from '@liskat/engine';
+import { BOT_PARAMS_BY_DIFFICULTY, type BotDifficulty, type MatchFormat } from '@liskat/engine';
 
 await initAccounts();
 await initRatings();
@@ -124,6 +124,9 @@ function maybeRecordMatch(table: Table): void {
   const typeKey = formatKeyOf(table.format);
   const ranked = table.rated && allAccounts && (MATCH_TYPES as readonly string[]).includes(typeKey);
   const players = seats.map((s, slot) => ({ userId: s!.id.startsWith('u_') ? s!.id : null, username: s!.nick, score: table.match!.scores[slot] }));
+  // Capture the replay array NOW: a rematch resets table.replay to a fresh array, and
+  // the write below runs after an await, so reading it lazily could store the wrong match.
+  const deals = table.replay;
   void recordMatch(typeKey, ranked, players)
     .then((rec) => {
       if (!rec) return;
@@ -133,7 +136,7 @@ function maybeRecordMatch(table: Table): void {
         ts: rec.ts,
         ranked: rec.ranked,
         players: seats.map((s, slot) => ({ slot, username: s!.nick, account: s!.id.startsWith('u_') })),
-        deals: table.replay,
+        deals,
       });
     })
     .then(() => broadcastTable(table))
@@ -174,15 +177,16 @@ function freshBotName(table: Table): string {
 // Creates an unlisted, never-rated table seated with two heuristic bots, then
 // runs `seat` to add the human (last, so the match auto-starts at three seated).
 // Auto-removed if nobody joins within a couple of minutes.
-function createBotTable(format: MatchFormat, seat: (t: Table) => void, tutorial = false): Table {
+function createBotTable(format: MatchFormat, seat: (t: Table) => void, tutorial = false, difficulty: BotDifficulty = 'hard'): Table {
   const table = lobby.create('private', format);
   table.tutorial = tutorial;
   table.timed = !tutorial; // a coached tutorial game runs with no move clock
   // table.rated stays false; bot games never count toward Elo or history.
   bindTable(table);
   const [a, b] = pickBotNames();
-  table.addBot(a);
-  table.addBot(b);
+  const params = BOT_PARAMS_BY_DIFFICULTY[difficulty];
+  table.addBot(a, params);
+  table.addBot(b, params);
   seat(table);
   const cleanup = setTimeout(() => {
     const t = lobby.get(table.id);
@@ -198,11 +202,11 @@ function createTestGame(): Table {
 }
 
 // Practice game: seats the requesting player immediately against two bots.
-function startPracticeGame(client: Client, format: MatchFormat, tutorial = false): void {
+function startPracticeGame(client: Client, format: MatchFormat, tutorial = false, difficulty: BotDifficulty = 'hard'): void {
   if (client.tableId) leaveTable(client);
   const table = createBotTable(format, (t) => {
     if (t.addPlayer(client.id, client.nick)) client.tableId = t.id;
-  }, tutorial);
+  }, tutorial, difficulty);
   broadcastTable(table);
 }
 
@@ -426,10 +430,12 @@ function handle(client: Client, msg: ClientMessage): void {
       enqueueClient(client, msg.format ?? DEFAULT_FORMAT);
       return;
 
-    case 'practiceMatch':
+    case 'practiceMatch': {
       matchmaker.dequeue(client.id); // a practice game supersedes any pending search
-      startPracticeGame(client, msg.format ?? PRACTICE_FORMAT, msg.tutorial ?? false);
+      const difficulty: BotDifficulty = msg.difficulty === 'easy' || msg.difficulty === 'medium' ? msg.difficulty : 'hard';
+      startPracticeGame(client, msg.format ?? PRACTICE_FORMAT, msg.tutorial ?? false, difficulty);
       return;
+    }
 
     case 'addBot': {
       if (!client.tableId) return;
@@ -460,6 +466,23 @@ function handle(client: Client, msg: ClientMessage): void {
       matchmaker.dequeue(client.id);
       leaveTable(client);
       return;
+
+    case 'rematch': {
+      if (!client.tableId) return;
+      const table = lobby.get(client.tableId);
+      if (!table) return;
+      const r = table.requestRematch(client.id);
+      if (r === 'started') {
+        // The finished match has been recorded; forget the record-once marker so the
+        // rematch (same table id) can be rated and stored when IT finishes.
+        ratedTables.delete(table.id);
+      } else if (r !== 'voted') {
+        send(client.ws, { t: 'error', msg: r });
+        return;
+      }
+      broadcastTable(table);
+      return;
+    }
 
     case 'chat': {
       if (!client.tableId) return;
@@ -617,6 +640,17 @@ async function handleProfile(req: IncomingMessage, res: ServerResponse): Promise
   const userId = userIdForToken(token);
   if (!userId) return json(401, { ok: false, error: 'Not logged in.' });
   json(200, { ok: true, username: usernameForId(userId), ratings: ratingsFor(userId), history: historyFor(userId) });
+}
+
+// Public leaderboard: the top rated accounts per match type. Usernames and ratings are
+// public by design (they show at every table), so no auth; capped and cheap to build.
+function handleLeaderboard(res: ServerResponse): void {
+  const board: Record<string, { username: string; rating: number; games: number }[]> = {};
+  for (const t of MATCH_TYPES) {
+    board[t] = leaderboardFor(t).map((e) => ({ username: usernameForId(e.userId) ?? 'Player', rating: e.rating, games: e.games }));
+  }
+  res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-cache' });
+  res.end(JSON.stringify({ ok: true, board }));
 }
 
 async function handleMatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -822,6 +856,7 @@ const httpServer = createServer((req, res) => {
   if (req.method === 'POST' && req.url === '/auth/logout') return void handleAuth(req, res, 'logout');
   if (req.method === 'POST' && req.url === '/auth/profile') return void handleProfile(req, res);
   if (req.method === 'POST' && req.url === '/auth/match') return void handleMatch(req, res);
+  if (req.method === 'GET' && req.url === '/leaderboard') return handleLeaderboard(res);
   if (req.method === 'POST' && req.url === '/admin/testgame') return void handleTestGame(req, res);
   if (req.method === 'GET' && (req.url ?? '').startsWith('/stats')) return void handleStats(req, res);
   if (req.method === 'GET' && (req.url === '/admin' || (req.url ?? '').startsWith('/admin?'))) {

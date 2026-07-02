@@ -11,6 +11,8 @@ import {
   decideBotAction,
   deal,
   cardId,
+  DEFAULT_PARAMS,
+  type BotParams,
   type MatchFormat,
   type MatchState,
   type RoundState,
@@ -102,7 +104,12 @@ export class Table {
   // single human can try the interface against two random-move opponents; real
   // matchmade/private tables never have bots.
   private botSlots = new Set<number>();
+  // Weights each bot seat plays with (difficulty presets); absent = production strength.
+  private botParams = new Map<number, BotParams>();
   private botTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // Slots that have voted to replay the finished match (bots agree implicitly).
+  rematchVotes = new Set<number>();
 
   // Injected so the server can re-send views whenever something changes.
   onChange: () => void = () => {};
@@ -165,11 +172,12 @@ export class Table {
 
   // Seats a bot in the first open slot. Bots have no socket; the table plays
   // their turns automatically (see scheduleBotMove). Returns false if full.
-  addBot(nick: string): boolean {
+  addBot(nick: string, params: BotParams = DEFAULT_PARAMS): boolean {
     const slot = this.seats.findIndex((s) => s === null);
     if (slot < 0) return false;
     this.seats[slot] = { id: `bot_${Math.random().toString(36).slice(2, 10)}`, nick };
     this.botSlots.add(slot);
+    this.botParams.set(slot, params);
     if (this.seatedCount === 3 && this.status === 'waiting') this.startMatch();
     return true;
   }
@@ -189,6 +197,7 @@ export class Table {
     const slot = this.slotOf(id);
     if (slot < 0) return;
     this.seats[slot] = null;
+    this.rematchVotes.delete(slot);
     // If a game was in progress, it cannot continue with an empty seat.
     if (this.status === 'playing' || this.status === 'between') {
       this.status = this.match ? 'over' : 'waiting';
@@ -205,7 +214,28 @@ export class Table {
     this.dealIndex = 0;
     this.timeBank = [BANK_START_MS, BANK_START_MS, BANK_START_MS];
     this.dealReplays = [];
+    this.history = [];
+    this.rematchVotes.clear();
     this.startDeal();
+  }
+
+  // A seated player votes to replay the finished match with the same seats. Bot seats
+  // agree implicitly, so the rematch starts once every HUMAN seat has voted. Returns
+  // 'started' when the new match begins, 'voted' when the vote was recorded, or an
+  // error message when a rematch isn't possible right now.
+  requestRematch(id: string): 'started' | 'voted' | string {
+    if (this.status !== 'over') return 'the match is still running';
+    const slot = this.slotOf(id);
+    if (slot < 0) return 'you are not seated at this table';
+    if (this.seatedCount < 3) return 'a player has left; the table is no longer full';
+    this.rematchVotes.add(slot);
+    // Bots agree as soon as anyone asks; recording them keeps the client's vote
+    // count (n / seats) honest at mixed human+bot tables.
+    for (const i of this.botSlots) if (this.seats[i]) this.rematchVotes.add(i);
+    const allAgreed = this.seats.every((s, i) => s === null || this.rematchVotes.has(i));
+    if (!allAgreed) return 'voted';
+    this.startMatch();
+    return 'started';
   }
 
   private startDeal(): void {
@@ -443,7 +473,7 @@ export class Table {
   // legal move so a turn can never stall.
   private botAction(slot: number): Action | null {
     const role = roleOfSlot(slot, this.dealIndex);
-    return decideBotAction(this.round!, role) ?? this.randomAction(slot);
+    return decideBotAction(this.round!, role, this.botParams.get(slot) ?? DEFAULT_PARAMS) ?? this.randomAction(slot);
   }
 
   // Drives automatic transitions: a completed trick is revealed briefly then
@@ -601,6 +631,7 @@ export class Table {
       round,
       chat: this.chat.slice(),
       history: this.history.slice(),
+      rematchVotes: [...this.rematchVotes],
     };
   }
 }
@@ -634,6 +665,7 @@ export interface TableView {
   round?: RoundView;
   chat: { nick: string; slot: number; text: string }[];
   history: HistoryEntry[];
+  rematchVotes: number[]; // slots that want to replay the finished match
 }
 
 export interface RoundView {

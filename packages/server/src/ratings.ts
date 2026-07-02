@@ -107,6 +107,24 @@ export function ratingsFor(userId: string): Record<MatchType, Rating> {
   return out;
 }
 
+// The top rated accounts for one match type, best first. Everyone who has finished at
+// least one ranked match of the type is listed (the client marks provisional entries);
+// ties break toward more games played.
+export interface LeaderboardEntry {
+  userId: string;
+  rating: number;
+  games: number;
+}
+export function leaderboardFor(type: MatchType, limit = 50): LeaderboardEntry[] {
+  const out: LeaderboardEntry[] = [];
+  for (const [userId, byType] of ratings) {
+    const r = byType[type];
+    if (r && r.games > 0) out.push({ userId, rating: r.rating, games: r.games });
+  }
+  out.sort((a, b) => b.rating - a.rating || b.games - a.games);
+  return out.slice(0, limit);
+}
+
 export function historyFor(userId: string, limit = 50): MatchRecord[] {
   const mine = matches.filter((m) => m.results.some((r) => r.userId === userId));
   return mine.slice(-limit).reverse();

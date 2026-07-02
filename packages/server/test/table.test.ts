@@ -107,6 +107,39 @@ test('a player leaving mid-game ends the match', () => {
   assert.equal(t.status, 'over');
 });
 
+test('rematch: all seats voting restarts the match; a mid-match vote is refused', () => {
+  const t = new Table('t7', 'private', { kind: 'deals', deals: 6 });
+  t.setScheduler((cb) => cb());
+  t.addPlayer('A', 'Ann');
+  t.addPlayer('B', 'Bo');
+  t.addPlayer('C', 'Cy');
+
+  // A rematch can't start while the match is still running.
+  assert.equal(typeof t.requestRematch('A'), 'string');
+  assert.notEqual(t.requestRematch('A'), 'started');
+
+  driveMatch(t, ['A', 'B', 'C']);
+  assert.equal(t.status, 'over');
+  assert.equal(t.history.length, 6);
+
+  // Votes accumulate; the third one restarts a fresh match.
+  assert.equal(t.requestRematch('A'), 'voted');
+  assert.equal(t.requestRematch('B'), 'voted');
+  assert.deepEqual(t.view('A').rematchVotes.toSorted(), [0, 1]);
+  assert.equal(t.requestRematch('C'), 'started');
+
+  assert.equal(t.status, 'playing');
+  assert.equal(t.dealIndex, 0);
+  assert.equal(t.match!.finished, false);
+  assert.equal(t.history.length, 0); // the old scorecard is gone
+  assert.equal(t.replay.length, 1); // a fresh deal replay has started
+  assert.deepEqual(t.view('A').rematchVotes, []);
+
+  // An outsider (or anyone, mid-match) can never trigger a rematch.
+  const z = t.requestRematch('Z');
+  assert.ok(z !== 'voted' && z !== 'started');
+});
+
 // The reconnect "resend" relies on this: an action that already applied is
 // rejected on replay without mutating state, so a duplicated move can never be
 // applied twice. (The message layer simply swallows the error for a resend.)
