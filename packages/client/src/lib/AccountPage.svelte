@@ -28,6 +28,18 @@
 
   const me = $derived(profile?.username ?? $conn.account ?? '');
 
+  // Log out AND leave the page: otherwise the account screen keeps rendering the
+  // now-logged-out user's ratings and match history (clickable into loaded replays)
+  // until the user manually navigates away. Dropping the local state and returning to
+  // the lobby ensures nothing of the old session lingers on screen.
+  function onLogout() {
+    profile = null;
+    detail = null;
+    dealIdx = null;
+    logout();
+    page.set('lobby');
+  }
+
   async function openMatch(id: string) {
     loadingMatch = true;
     dealIdx = null;
@@ -77,7 +89,7 @@
 <button class="brand" style="position:fixed; top:16px; left:20px; font-size:26px; font-weight:800; letter-spacing:0.5px; color:#f2f5f3; background:none; border:none; padding:0; cursor:pointer; font-family:inherit;" onclick={() => ($page = 'lobby')} title="Home">liskat</button>
 <div class="topright">
   <button class="link" onclick={() => ($page = 'lobby')}>← Lobby</button>
-  <button class="link" onclick={logout}>Log out</button>
+  <button class="link" onclick={onLogout}>Log out</button>
 </div>
 
 <div class="account">

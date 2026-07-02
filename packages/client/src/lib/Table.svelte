@@ -83,6 +83,21 @@
       frozenClockMs = null;
     }
   });
+  // A rejected action doesn't change the view (still our turn, card still in hand), so the
+  // reconcile above never fires and the optimistic play would stay stuck forever -- freezing
+  // the seat, since every play path is gated on `!pending`. Watch for a fresh server error
+  // and revert the optimistic card/premove so the player can act again.
+  let seenError = $state<string | null>(null);
+  $effect(() => {
+    const e = $conn.error;
+    if (e && e !== seenError) {
+      seenError = e;
+      pending = null;
+      frozenClockMs = null;
+    } else if (!e) {
+      seenError = null;
+    }
+  });
   // A card the player queued to play before their turn ("pre-move"): shown greyed
   // in the hand and, when there's room on the board, as a faint ghost in their
   // trick slot. When the turn comes round it auto-plays after a short beat; if it

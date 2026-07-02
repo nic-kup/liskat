@@ -140,9 +140,10 @@
     font-size: 13px;
   }
   .scroll {
-    /* Cap so the panel's bottom stays clear of the last-trick box plus a
-       buffer. */
-    max-height: calc(100vh - 700px);
+    /* Cap so the panel's bottom stays clear of the last-trick box plus a buffer, but
+       never collapses to nothing: the bare calc went to 0 on viewports <=700px tall
+       (a 1366x768 laptop), hiding every row. The max() keeps a scrollable floor. */
+    max-height: max(160px, calc(100vh - 320px));
     overflow-y: auto;
     padding: 0 8px 8px;
   }

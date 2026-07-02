@@ -77,7 +77,18 @@ const MAX_QUEUE = 64; // cap unsent messages so an extended outage can't grow it
 // stop arriving and a reload is the only way to recover. To catch this, we send
 // an app-level `ping` on a timer and force a reconnect if nothing comes back.
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+// After a reconnect we send `resume`; if it can't be honoured (server restarted, or the
+// 60s grace window lapsed) no `table` view comes back and we'd be left rendering a dead
+// game. This timer fires if that happens and clears the stale view so the lobby shows.
+let resumeWatchdog: ReturnType<typeof setTimeout> | null = null;
 let lastRecv = 0; // timestamp of the last message received on the live socket
+
+function clearResumeWatchdog(): void {
+  if (resumeWatchdog) {
+    clearTimeout(resumeWatchdog);
+    resumeWatchdog = null;
+  }
+}
 const PING_MS = 15000; // how often we probe (server also pings every 25s)
 const STALE_MS = 40000; // no traffic for this long => assume the socket is dead
 
@@ -201,8 +212,18 @@ export function connect(): void {
     // precedence; otherwise reclaim the anonymous seat we last held.
     const token = ls(SESSION_KEY);
     const pid = ls(PID_KEY);
+    clearResumeWatchdog();
     if (token) ws.send(JSON.stringify({ t: 'auth', token }));
-    else if (pid) ws.send(JSON.stringify({ t: 'resume', playerId: pid }));
+    else if (pid) {
+      ws.send(JSON.stringify({ t: 'resume', playerId: pid }));
+      // If the resume succeeds, a `table` view arrives and cancels this. If it doesn't,
+      // we're on a fresh identity with no table -> drop the stale view we were rendering.
+      resumeWatchdog = setTimeout(() => {
+        resumeWatchdog = null;
+        conn.update((s) => (s.view ? { ...s, view: null } : s));
+        reviewStore.set(null);
+      }, 4000);
+    }
     for (const m of queue) ws.send(m);
     queue = [];
     // Replay an action that may have been lost on the socket that just died.
@@ -245,6 +266,9 @@ export function connect(): void {
     // it either reflects the move or re-syncs us to the truth. Either way there's
     // nothing left to replay. (`left` means we're no longer at a table at all.)
     if (msg.t === 'table' || msg.t === 'left') pendingAction = null;
+    // A table view (or an explicit `left`) resolves the reconnect: we know where we stand,
+    // so cancel the stale-view watchdog.
+    if (msg.t === 'table' || msg.t === 'left') clearResumeWatchdog();
     if (msg.t === 'left') reviewStore.set(null); // no table, no review
     conn.update((s) => {
       switch (msg.t) {
@@ -262,7 +286,8 @@ export function connect(): void {
         case 'table':
           return { ...s, view: msg.view as TableView, searching: null, error: null };
         case 'left':
-          return { ...s, view: null };
+          // Leaving a table clears any in-game error too, so it doesn't leak into the lobby.
+          return { ...s, view: null, error: null };
         case 'error':
           return { ...s, error: msg.msg };
         default:

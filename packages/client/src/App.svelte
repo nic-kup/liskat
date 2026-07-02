@@ -13,11 +13,17 @@
   const params = new URLSearchParams(location.search);
   const invitedTable = params.get('table');
   let joinTried = $state(false);
+  let inviteDone = $state(false); // once we've joined, stop showing the banner for good
   $effect(() => {
     if (invitedTable && $conn.connected && $conn.playerId && !$conn.view && !joinTried) {
       joinTried = true;
       joinTable(invitedTable);
     }
+  });
+  // Latch the banner closed as soon as the join lands, so it doesn't reappear (nor
+  // misattribute an unrelated lobby error to the invite) after you later leave the table.
+  $effect(() => {
+    if (joinTried && $conn.view) inviteDone = true;
   });
 </script>
 
@@ -30,7 +36,7 @@
     <HowTo />
   {:else}
     <Lobby />
-    {#if invitedTable}
+    {#if invitedTable && !inviteDone}
       <p class="invite">
         {#if $conn.error}
           Couldn't join table <code>{invitedTable}</code>: {$conn.error}
