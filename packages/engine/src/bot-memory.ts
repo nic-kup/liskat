@@ -50,11 +50,15 @@ const inHand = (hand: Card[], c: Card) => hand.some((h) => h.suit === c.suit && 
 // would beat it within that category is either already played or in our own hand
 // (so no opponent can hold it). For a side suit this ignores trumps: a side
 // master still loses to a ruff, so callers pair it with `safeToCash`.
-export function isCategoryMaster(card: Card, hand: Card[], mem: PlayMemory, contract: Contract): boolean {
+// `known` are extra cards the caller can account for beyond `hand` and the played
+// pile: for the declarer in a skat game, its own buried discard. A higher card sitting
+// in that discard can never appear, so it doesn't stop our card from being the master.
+export function isCategoryMaster(card: Card, hand: Card[], mem: PlayMemory, contract: Contract, known: Card[] = []): boolean {
+  const accounted = (c: Card) => inHand(hand, c) || known.some((k) => k.suit === c.suit && k.rank === c.rank);
   if (isTrump(card, contract)) {
     for (const t of trumpsHighToLow(contract)) {
       if (cardId(t) === cardId(card)) break; // reached our card: nothing higher remains unaccounted for
-      if (!isGone(mem, t) && !inHand(hand, t)) return false;
+      if (!isGone(mem, t) && !accounted(t)) return false;
     }
     return true;
   }
@@ -62,7 +66,7 @@ export function isCategoryMaster(card: Card, hand: Card[], mem: PlayMemory, cont
   for (const rank of SIDE_RANKS_DESC) {
     if (rank === card.rank) break;
     const higher: Card = { suit: card.suit, rank };
-    if (!isGone(mem, higher) && !inHand(hand, higher)) return false;
+    if (!isGone(mem, higher) && !accounted(higher)) return false;
   }
   return true;
 }

@@ -241,6 +241,11 @@ function wouldWin(trickCards: Card[], card: Card, contract: Contract): boolean {
 interface Ctx {
   contract: Contract;
   hand: Card[];
+  // Cards I legitimately know are out of every opponent's hand beyond my own hand
+  // and the public played pile: the declarer's own discard, but ONLY in a skat game
+  // (in a HAND game the declarer declined the skat and never saw those two cards, so
+  // they must be treated as unknown -- see buildCtx). Empty for defenders.
+  known: Card[];
   mem: PlayMemory;
   trickCards: Card[];
   empty: boolean;
@@ -280,8 +285,15 @@ function buildCtx(s: RoundState, seat: Seat): Ctx {
   const led = empty ? null : leadSuit(trickCards[0], contract);
   const iAmDeclarer = s.declarer === seat;
 
+  // The declarer knows its own discard (s.skat becomes the two buried cards) ONLY in a
+  // skat game. In a HAND game (tookSkat === false) s.skat still holds the untouched dealt
+  // skat the declarer never saw, so it must NOT be treated as known -- doing so let the bot
+  // "see" hidden trumps and count hidden points, a fairness leak that also inflated its
+  // hand-game bid EV. Defenders never know the skat.
+  const known: Card[] = iAmDeclarer && s.tookSkat ? [...s.skat] : [];
+
   // Trumps still possibly in opponents' hands.
-  const oppTrumpsOut = outstandingTrumps(hand, mem, contract, iAmDeclarer ? s.skat : []).length;
+  const oppTrumpsOut = outstandingTrumps(hand, mem, contract, known).length;
 
   // Who is winning the trick right now, and is that an ally or an opponent.
   let friendWinning = false;
@@ -313,16 +325,17 @@ function buildCtx(s: RoundState, seat: Seat): Ctx {
   const waitingOpps = waiting.filter(isOpp);
   const waitingPartners = waiting.filter((o) => !isOpp(o)); // a defender's still-to-play partner
 
-  // Points my side has banked, and the goal it needs. The declarer knows the skat
-  // (it counts for them); defenders know their own collected pile. Both are public
-  // to my side -- no peeking at hidden hands.
+  // Points my side has banked, and the goal it needs. In a skat game the declarer knows
+  // the two buried cards' points and counts them; in a HAND game it never saw the skat, so
+  // it can't count those points during play (they still score for it at the end -- an
+  // unknown bonus, not something to plan around). Defenders count their own collected pile.
   const myBanked = iAmDeclarer
-    ? totalPoints(s.declarerTrickPoints) + totalPoints(s.skat)
+    ? totalPoints(s.declarerTrickPoints) + (s.tookSkat ? totalPoints(s.skat) : 0)
     : totalPoints(s.defenderTrickPoints);
   const myGoal = iAmDeclarer ? 61 : 60;
 
   return {
-    contract, hand, mem, trickCards, empty, isLast, led,
+    contract, hand, known, mem, trickCards, empty, isLast, led,
     trickValue: trickCards.reduce((a, c) => a + cardPoints(c), 0),
     iAmDeclarer, declarer: s.declarer, waitingOpps, waitingPartners, oppTrumpsOut, friendWinning, oppWinning,
     defPosGood, defPosBad,
@@ -349,8 +362,10 @@ function partnerCanRuff(suit: string, ctx: Ctx): boolean {
 function outstandingHighPts(suit: string, ctx: Ctx): number {
   let pts = 0;
   for (const [rank, p] of [['A', 11], ['10', 10]] as const) {
+    const id = cardId({ suit: suit as Card['suit'], rank });
     const inHand = ctx.hand.some((h) => h.suit === suit && h.rank === rank);
-    if (!inHand && !ctx.mem.playedIds.has(cardId({ suit: suit as Card['suit'], rank }))) pts += p;
+    const known = ctx.known.some((h) => h.suit === suit && h.rank === rank); // buried in my own discard
+    if (!inHand && !known && !ctx.mem.playedIds.has(id)) pts += p;
   }
   return pts;
 }
@@ -364,7 +379,7 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
   const sc = str01(c, contract);
   const pt = pts01(c);
   const len = suitLen01(c, hand, contract);
-  const master = isCategoryMaster(c, hand, ctx.mem, contract) ? 1 : 0;
+  const master = isCategoryMaster(c, hand, ctx.mem, contract, ctx.known) ? 1 : 0;
   const win = empty ? 0 : wouldWin(ctx.trickCards, c, contract) ? 1 : 0;
   const lose = empty ? 0 : 1 - win;
   const ruffSide = led !== null && led !== 'T' ? 1 : 0; // the lead is a side suit (ruffable)
@@ -382,7 +397,9 @@ function suitFeatures(c: Card, ctx: Ctx): number[] {
     f[2] = trump;
     f[3] = trump && ctx.oppTrumpsOut > 0 ? 1 : 0;
     f[4] = master;
-    f[5] = master && !waitingCanRuff(c.suit, ctx) ? 1 : 0;
+    // safe to cash: a master that can't be ruffed away. A TRUMP master is always safe
+    // (a trump lead can't be ruffed); only a SIDE-suit master risks a waiting ruff.
+    f[5] = master && (trump || !waitingCanRuff(c.suit, ctx)) ? 1 : 0;
     f[6] = len;
     f[7] = !trump && waitingCanRuff(c.suit, ctx) ? 1 : 0;
     f[20] = !trump && partnerCanRuff(c.suit, ctx) ? 1 : 0; // lead into my partner's ruff
