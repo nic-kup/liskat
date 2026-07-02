@@ -1608,7 +1608,13 @@
     margin-bottom: 4px;
   }
   /* Persistent "why this card" line (green, to echo the ringed card). Primary coach
-     surface on touch, where the hover bubble never appears. */
+     surface on touch, where the hover bubble never appears; hover devices get the
+     per-card bubble instead, so this line would be redundant clutter there. */
+  @media (hover: hover) {
+    .coachplay {
+      display: none;
+    }
+  }
   .coachplay {
     background: rgba(95, 208, 122, 0.12);
     border: 1px solid rgba(95, 208, 122, 0.35);
