@@ -44,7 +44,7 @@ import { buildMemory, isCategoryMaster, outstandingTrumps, someoneCanRuff, type 
 import { chooseCardScored, chooseDiscardScored, scoreCardsScored, bandedSoftmaxProbs, sampleFromProbs } from './bot-play-score.ts';
 import { mcBidAction, mcDeclareAction } from './bot-mc.ts';
 
-export { DEFAULT_PARAMS, type BotParams } from './bot-params.ts';
+export { DEFAULT_PARAMS, BOT_PARAMS_BY_DIFFICULTY, type BotParams, type BotDifficulty } from './bot-params.ts';
 // Public hint APIs (used by the client tutorial assistant): the per-card play scorer, its
 // feature decomposition, the discard scorer, the feature name tables, and the MC bid/declare
 // evaluators. Re-exported here so they reach the client via the package root (index.ts -> bot.ts).

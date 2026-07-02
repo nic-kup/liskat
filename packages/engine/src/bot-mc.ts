@@ -71,9 +71,12 @@ function active(r: RoundState): Seat | null {
 function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = false, declSeat: Seat = 0): { won: boolean; value: number; schneider: boolean; schwarz: boolean } {
   let r = createRound(d);
   let guard = 0;
-  // Rollouts estimate the EV of GREEDY play; strip any softmax temperature so the
-  // playouts stay deterministic and low-variance (real play may still randomise).
-  const gp = params.playTemp ? { ...params, playTemp: 0 } : params;
+  // Rollouts play at mcRolloutTemp (default 0 = greedy): the shipped bot strips its tiny
+  // playTemp for a low-variance EV estimate, while a tempered difficulty preset models all
+  // three seats at its own temperature (see bot-params.ts). Either way the playout stays
+  // deterministic: the softmax draw is hashed from the position, not a live RNG.
+  const rolloutTemp = params.mcRolloutTemp ?? 0;
+  const gp = (params.playTemp ?? 0) === rolloutTemp ? params : { ...params, playTemp: rolloutTemp };
   const step = (seat: Seat): Action | null => {
     if (r.phase === 'bidding') {
       // Only declSeat ever bids/holds; the other two always pass, so declSeat wins the
@@ -96,7 +99,7 @@ function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = fa
     }
     const legal = legalCards(r, seat);
     if (legal.length <= 1) return legal.length ? { type: 'playCard', seat, card: legal[0] } : null;
-    return decideBotAction(r, seat, gp); // scored GREEDY play (mcBidK irrelevant here; gp strips softmax temp)
+    return decideBotAction(r, seat, gp); // scored play at rolloutTemp (mcBidK irrelevant here)
   };
   while (r.phase !== 'finished') {
     if (++guard > 600) throw new Error('playout did not terminate');

@@ -100,8 +100,9 @@ export interface BotParams {
   // argmax, so the bot varies its play (less predictable, more human-like) at a cost in
   // strength that grows with the temperature. 0/undefined = strict argmax (current
   // behaviour, byte-identical). The sample is seeded from the public+private game state,
-  // so it is reproducible and replay-safe. NEVER applied inside MC rollouts (the EV
-  // estimate must stay low-variance): bot-mc forces greedy play in its playouts.
+  // so it is reproducible and replay-safe. NOT applied inside MC rollouts (the EV
+  // estimate must stay low-variance): bot-mc plays its playouts greedy unless
+  // mcRolloutTemp (below) asks for a tempered rollout policy.
   playTemp?: number;
 
   // --- Refinements to the softmax (all only matter when playTemp > 0):
@@ -119,6 +120,16 @@ export interface BotParams {
   playBandDelta?: number;
   playTempEndgameTrick?: number;
   playTempDefFactor?: number;
+
+  // --- Temperature the MC playouts (bot-mc.ts) run ALL THREE seats at. By default the
+  // rollouts strip playTemp and play greedy (a low-variance EV estimate for the shipped
+  // near-argmax bot). A deliberately-weakened bot (the easy/medium difficulty presets
+  // below) plays at a real temperature, so greedy rollouts would systematically
+  // over-estimate its EV -- it would bid games its sloppy play can't land, and credit its
+  // opponents with mistakes they may not make. Setting mcRolloutTemp to the bot's own
+  // playTemp makes it model itself AND its tablemates as playing the way it does.
+  // 0/undefined = greedy rollouts (unchanged production behaviour).
+  mcRolloutTemp?: number;
 
   // --- Monte-Carlo contract selection (bot-mc.ts). When > 0, the bot picks its
   // game/bid by simulating each candidate contract this many times per determinized
@@ -307,16 +318,20 @@ export const DEFAULT_PARAMS: BotParams = {
   scorePlay: 1,
 
   // Softmax play randomness, ON at a very low temperature: the scored play SAMPLES from
-  // softmax(score / 0.01) instead of the strict argmax, so the bot varies its card play
-  // (~2.8% of decisions differ from the argmax, only the closest near-ties) -- less
-  // predictable / more human-like, with NO measurable strength cost. Paired A/B vs greedy
-  // argmax, N=12000 (experiments/ab-softmax.ts): +0.10 +/- 0.17 pts/deal (statistically
-  // zero, faintly positive). Higher temperatures buy more variety but cost real points
-  // (T=0.10 -> -0.39; >=0.7 bits of entropy -> -1.5..-2), and banding/phase/role-gating did
-  // NOT discount that (ab-softmax-cfg.ts) -- cost is ~convex in the deviation rate, so the
-  // free zone is just this low-T sliver. Rollouts force greedy (bot-mc strips playTemp), so
-  // the MC bidder/declarer EV estimates are unaffected. 0/undefined would restore argmax.
-  playTemp: 0.01,
+  // softmax(score / T) instead of the strict argmax, so the bot varies its card play only
+  // among the closest near-ties -- less predictable / more human-like, with no measurable
+  // strength cost. Characterized twice (experiments/ab-softmax.ts, paired vs greedy):
+  // N=12000 put T=0.01 at +0.10 +/- 0.17; the finer N=18000 sweep (2026-07) put T=0.01/
+  // 0.02/0.03/0.05 at +0.02/-0.10/-0.05/-0.12 +/- ~0.12-0.16 -- i.e. everything up to
+  // ~0.05 is statistically zero and there is NO hidden optimum above 0 (vs fixed
+  // opponents mixing can't gain: POMDP). Real costs start around T=0.10 (-0.39) and grow
+  // ~linearly in the deviation rate; banding/phase/role-gating did not discount that
+  // (ab-softmax-cfg.ts). Shipped at 0.02 (raised from 0.01, 2026-07-02): still free
+  // within resolution, ~3.8% non-greedy decisions (vs 2.9%) for a bit more table
+  // variety, and the GA training harnesses now train under the same T=0.02 policy.
+  // Rollouts force greedy (bot-mc strips playTemp unless mcRolloutTemp is set), so the
+  // MC bidder/declarer EV estimates are unaffected. 0/undefined would restore argmax.
+  playTemp: 0.02,
 
   // ARCHIVE-HARDENED (Hall of Fame): the suit/grand DECLARER (suitDecl, grandDecl, discSuit) and the
   // four PER-SEAT DEFENDERS below are the ARCHIVE-trained vectors, which SUPERSEDE the single-opponent
@@ -398,6 +413,29 @@ export const DEFAULT_PARAMS: BotParams = {
     discGrand: [-1.030075, -4.553247, -5.370312, 0.107808, 1.80254, 1.886982],
     discNull: [3.768238, 0.733511, 0.279117, -0.419056],
   },
+};
+
+// Difficulty presets for the practice bots. Strength is controlled purely by the softmax
+// play temperature: the same tuned weights, sampled more loosely. Hard IS the production
+// bot (playTemp 0.02); easy/medium raise the temperature so the bot makes real, human-ish
+// mistakes. They also set mcRolloutTemp to their own temperature, so the MC bidder
+// simulates every seat playing that sloppily -- a weak bot must not bid on the assumption
+// that it (or anyone) will play perfectly (in practice this makes it pass more marginal
+// games, handing them to the human).
+//
+// CALIBRATED empirically (experiments/arena-difficulty.ts, [easy, medium, hard] at one
+// table, 10k deals, full seat rotation): temperatures up to ~0.1 are indistinguishable
+// from production (the paired A/B, ab-softmax.ts at 18k deals, puts T=0.02..0.05 at 0 to
+// -0.12 +/- 0.15 pts/deal -- the tuned model is that robust to near-tie sampling), so a
+// felt difficulty ladder needs an order of magnitude more: T=0.5 -> -2.9 pts/deal and
+// T=1.0 -> -5.4 pts/deal vs production at the same table (which climbs to +24.9/deal
+// exploiting them). Hard stays the exact DEFAULT_PARAMS object so it shares the
+// production MC memo cache.
+export type BotDifficulty = 'easy' | 'medium' | 'hard';
+export const BOT_PARAMS_BY_DIFFICULTY: Record<BotDifficulty, BotParams> = {
+  easy: { ...DEFAULT_PARAMS, playTemp: 1.0, mcRolloutTemp: 1.0 },
+  medium: { ...DEFAULT_PARAMS, playTemp: 0.5, mcRolloutTemp: 0.5 },
+  hard: DEFAULT_PARAMS,
 };
 
 // The order/identity of the tunable genes, for the evolution harness. Keeping it
