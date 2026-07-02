@@ -47,6 +47,7 @@ interface Client {
   tableId: string | null;
   ws: WebSocket;
   disconnectTimer: ReturnType<typeof setTimeout> | null;
+  resumeTries?: number; // per-socket resume attempts, capped to blunt guest-id guessing
 }
 
 const clients = new Map<WebSocket, Client>();
@@ -220,8 +221,10 @@ function joinTable(client: Client, table: Table): void {
 }
 
 function leaveTable(client: Client): void {
-  if (!client.tableId) return;
-  const table = lobby.get(client.tableId);
+  // Always answer with `left`, even when we have no table on record: a client that
+  // reconnected onto a fresh identity (failed resume) may still be rendering a dead game,
+  // and this is its escape hatch -- returning early would leave it stuck on a frozen board.
+  const table = client.tableId ? lobby.get(client.tableId) : undefined;
   client.tableId = null;
   send(client.ws, { t: 'left' });
   send(client.ws, { t: 'queues', counts: matchmaker.counts() });
@@ -275,9 +278,21 @@ function resume(ws: WebSocket, playerId: string | null): void {
   // closes a session-takeover hole should an account id ever leak.
   if (playerId && playerId.startsWith('u_')) return;
   const provisional = clients.get(ws);
+  if (!provisional) return;
+  // Cap resume attempts per socket: guest ids are short and somewhat guessable, so an
+  // unbounded socket could brute-force `resume` against byId. A legitimate reconnect needs
+  // exactly one attempt.
+  provisional.resumeTries = (provisional.resumeTries ?? 0) + 1;
+  if (provisional.resumeTries > 8) return;
   const prior = playerId ? byId.get(playerId) : undefined;
   if (!prior || prior === provisional) return;
-  if (provisional) byId.delete(provisional.id); // drop the throwaway identity
+  // Only reattach to an identity that is actually DISCONNECTED -- its socket dropped and it
+  // is sitting in the reconnect-grace window (disconnectTimer pending, or its ws no longer
+  // the live socket for that id). Refuse to seize an identity with a live socket: otherwise a
+  // guessed guest id would let an attacker evict an active player and see their hand.
+  const priorLive = clients.get(prior.ws) === prior && prior.disconnectTimer === null;
+  if (priorLive) return;
+  byId.delete(provisional.id); // drop the throwaway identity
   rebindTo(ws, prior);
 }
 
