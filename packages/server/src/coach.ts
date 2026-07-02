@@ -111,7 +111,7 @@ export function computeCoach(r: RoundState, role: Seat): CoachView {
     const b = r.bidding;
     const toAct = b.awaiting === 'response' ? b.responder : b.awaiting === 'forehand-decision' ? (0 as Seat) : b.asker;
     if (toAct === role) {
-      const ev = mcEvaluateHand(r.hands[role]);
+      const ev = mcEvaluateHand(r.hands[role], DEFAULT_PARAMS, role);
       c.bidCeil = ev.ceilingAny;
       c.bidContractKey = contractKey(ev.contract);
     }
@@ -127,7 +127,7 @@ export function computeCoach(r: RoundState, role: Seat): CoachView {
       // The UI merges discard + game choice into this step, so surface BOTH: the two cards to
       // bury, and the recommended game (the bot's intended contract for the 12-card hand).
       const sug = mcDeclareAction(r, role, DEFAULT_PARAMS);
-      const intended = mcEvaluateHand12(r.hands[role]).contract;
+      const intended = mcEvaluateHand12(r.hands[role], DEFAULT_PARAMS, role).contract;
       if (sug && sug.type === 'discard') {
         c.discardIds = sug.cards.map(cardId);
         c.discardReason = discardReason(sug.cards[0], sug.cards[1], r.hands[role], intended);

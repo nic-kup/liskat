@@ -63,10 +63,12 @@ function active(r: RoundState): Seat | null {
   if (r.phase === 'playing') return r.trickComplete ? null : r.turn;
   return null;
 }
-// One determinized playout: seat 0 declares `contract`, scored play for all seats.
+// One determinized playout: `declSeat` declares `contract`, scored play for all seats.
+// declSeat is the declarer's seat RELATIVE TO FOREHAND (who always leads, seat 0), so a
+// non-forehand declarer correctly plays after the opening lead instead of always leading.
 // Returns whether the declarer won AND the realized game value (schneider/schwarz baked
 // in), so the EV can account for win/loss MAGNITUDE, not just win rate.
-function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = false): { won: boolean; value: number; schneider: boolean; schwarz: boolean } {
+function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = false, declSeat: Seat = 0): { won: boolean; value: number; schneider: boolean; schwarz: boolean } {
   let r = createRound(d);
   let guard = 0;
   // Rollouts estimate the EV of GREEDY play; strip any softmax temperature so the
@@ -74,21 +76,22 @@ function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = fa
   const gp = params.playTemp ? { ...params, playTemp: 0 } : params;
   const step = (seat: Seat): Action | null => {
     if (r.phase === 'bidding') {
-      if (seat !== 0) return { type: 'pass', seat };
+      // Only declSeat ever bids/holds; the other two always pass, so declSeat wins the
+      // auction (at 18) from whichever seat it sits in.
+      if (seat !== declSeat) return { type: 'pass', seat };
       const b = r.bidding;
-      if (b.awaiting === 'forehand-decision') return { type: 'bid', seat: 0, value: 18 };
-      if (b.awaiting === 'response') return { type: 'hold', seat: 0 };
-      return { type: 'bid', seat: 0, value: 18 };
+      if (b.awaiting === 'response') return { type: 'hold', seat };
+      return { type: 'bid', seat, value: 18 }; // asker or forehand-decision
     }
     if (r.phase === 'declaring') {
       // hand=true plays the deal CLOSED (declines the skat): the round skips the discard
       // step and the skat (still scored for the declarer) is never seen. Otherwise take it.
-      if (r.declareStep === 'choose') return hand ? { type: 'playHand', seat: 0 } : { type: 'takeSkat', seat: 0 };
+      if (r.declareStep === 'choose') return hand ? { type: 'playHand', seat: declSeat } : { type: 'takeSkat', seat: declSeat };
       if (r.declareStep === 'discard') {
-        const scored = params.mcScoredDiscard && params.playW ? chooseDiscardScored(r.hands[0], contract, params.playW) : null;
-        return { type: 'discard', seat: 0, cards: scored ?? discardFor(r.hands[0], contract) };
+        const scored = params.mcScoredDiscard && params.playW ? chooseDiscardScored(r.hands[declSeat], contract, params.playW) : null;
+        return { type: 'discard', seat: declSeat, cards: scored ?? discardFor(r.hands[declSeat], contract) };
       }
-      if (r.declareStep === 'contract') return { type: 'declareContract', seat: 0, contract };
+      if (r.declareStep === 'contract') return { type: 'declareContract', seat: declSeat, contract };
       return null;
     }
     const legal = legalCards(r, seat);
@@ -100,7 +103,7 @@ function playoutResult(d: Deal, contract: Contract, params: BotParams, hand = fa
     if (r.phase === 'playing' && r.trickComplete) { r = applyAction(r, { type: 'collect' }); continue; }
     const seat = active(r);
     if (seat === null) break;
-    const a = step(seat) ?? step(0 as Seat);
+    const a = step(seat) ?? step(declSeat);
     if (!a) throw new Error('no playout action');
     r = applyAction(r, a);
   }
@@ -138,18 +141,37 @@ function bestAnnounce(base: number, m0: number, nLost: number, nWonBare: number,
   if (evSch > evNone) return { schneiderAnnounced: true };
   return undefined;
 }
-const memo = new Map<string, McResult>();
+// Per-params memo, keyed by the params OBJECT (WeakMap) so it's valid for ANY weights, not
+// just the shipped ones: a training genome or A/B variant is a distinct params object with
+// its own cache that's GC'd when the genome is discarded. This lets the repeated same-hand
+// evaluations within one auction (mcBidAction runs every bid step) hit the cache -- the
+// dominant hot-loop cost -- instead of re-simulating from scratch each turn.
+const memoByParams = new WeakMap<BotParams, Map<string, McResult>>();
+function memoFor(params: BotParams): Map<string, McResult> {
+  let m = memoByParams.get(params);
+  if (!m) { m = new Map(); memoByParams.set(params, m); }
+  return m;
+}
+// Build a 3-seat hand array with the declarer's cards at `declSeat` and the two opponent
+// slices in the remaining seats (forehand-order), so forehand (seat 0) still leads.
+function seatHands(hand0: Card[], oppA: Card[], oppB: Card[], declSeat: Seat): [Card[], Card[], Card[]] {
+  const hands: [Card[], Card[], Card[]] = [[], [], []];
+  hands[declSeat] = hand0.slice();
+  const opp = [oppA, oppB];
+  let oi = 0;
+  for (let st = 0; st < 3; st++) if (st !== declSeat) hands[st] = opp[oi++];
+  return hands;
+}
 
 // Estimate the best contract for a 10-card hand by simulated EV. EV (session points)
 // = P(win)*value - P(loss)*2*value. `ceiling` is the value to bid up to (0 if no
 // contract is +EV, so the bot passes).
-export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS): McResult {
+export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS, declSeat: Seat = 0): McResult {
   const K = Math.max(1, params.mcBidK ?? 0);
-  const cache = params === DEFAULT_PARAMS; // memo is keyed only by hand+K, valid when play params are the shipped ones
-  const key = hand0.map(cardId).sort().join('') + ':' + K;
-  if (cache) { const hit = memo.get(key); if (hit) return hit; }
+  const memo = memoFor(params);
+  const key = 'e' + declSeat + ':' + K + ':' + hand0.map(cardId).sort().join('');
+  const hit = memo.get(key); if (hit) return hit;
 
-  const rnd = lcg(seedOf(hand0));
   const known = new Set(hand0.map(cardId));
   const rest = DECK.filter((c) => !known.has(cardId(c)));
   let bestContract: Contract = CONTRACTS[0];
@@ -167,6 +189,10 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
   const valueOf = (c: Contract, h: boolean) =>
     c.type === 'null' ? previewGameValue(c, 0, h ? { hand: true } : {}) : previewGameValue(c, countMatadors(hand0, c), h ? { hand: true } : {});
   for (const contract of CONTRACTS) {
+    // Common random numbers: re-seed per contract so EVERY contract is estimated on the SAME
+    // sampled worlds. The cross-contract argmax is then a paired comparison, cutting the
+    // selection noise that unpaired sampling adds at these small K.
+    const rnd = lcg(seedOf(hand0));
     for (const isHand of variants) {
       // mcAnnounce: for a closed suit/grand hand game, reuse these rollouts to also pick the
       // best schneider/schwarz announcement (no extra sims) by tallying each rollout's realized
@@ -177,8 +203,8 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
       let nLost = 0, nWonBare = 0, nSch = 0, nSchw = 0;
       for (let k = 0; k < K; k++) {
         const sh = shuffle(rest, rnd);
-        const deal: Deal = { hands: [hand0.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sh.slice(20, 22) as [Card, Card] };
-        const res = playoutResult(deal, contract, params, isHand);
+        const deal: Deal = { hands: seatHands(hand0, sh.slice(0, 10), sh.slice(10, 20), declSeat), skat: sh.slice(20, 22) as [Card, Card] };
+        const res = playoutResult(deal, contract, params, isHand, declSeat);
         if (res.won) won++;
         scoreSum += res.won ? res.value : -2 * res.value;
         if (announceable) {
@@ -202,11 +228,10 @@ export function mcEvaluateHand(hand0: Card[], params: BotParams = DEFAULT_PARAMS
     }
   }
   const result: McResult = { contract: bestContract, hand: bestHand, ann: bestAnn, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
-  if (cache) { if (memo.size > 4096) memo.clear(); memo.set(key, result); }
+  if (memo.size > 4096) memo.clear();
+  memo.set(key, result);
   return result;
 }
-
-const memo12 = new Map<string, McResult>();
 
 // Re-evaluate the contract AFTER taking the skat, with all 12 declarer cards known (only
 // the 20 opponent cards are determinized). The bid-time estimate uses the original 10
@@ -214,13 +239,12 @@ const memo12 = new Map<string, McResult>();
 // is best (e.g. a jack arriving makes grand the play). The scored discard is applied
 // inside the playout, matching real play. 10 known cards go in the hand and 2 in the skat
 // so the existing playout (which takes the skat, then discards) reconstitutes all 12.
-export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PARAMS): McResult {
+export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PARAMS, declSeat: Seat = 0): McResult {
   const K = Math.max(1, params.mcBidK ?? 0);
-  const cache = params === DEFAULT_PARAMS;
-  const key = hand12.map(cardId).sort().join('') + ':' + K;
-  if (cache) { const hit = memo12.get(key); if (hit) return hit; }
+  const memo = memoFor(params);
+  const key = 'e12:' + declSeat + ':' + K + ':' + hand12.map(cardId).sort().join('');
+  const hit = memo.get(key); if (hit) return hit;
 
-  const rnd = lcg(seedOf(hand12));
   const known = new Set(hand12.map(cardId));
   const rest = DECK.filter((c) => !known.has(cardId(c))); // the 20 opponent cards
   const h10 = hand12.slice(0, 10);
@@ -231,12 +255,13 @@ export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PAR
   let ceilingAny = 0;
   const posGames: PosGame[] = [];
   for (const contract of CONTRACTS) {
+    const rnd = lcg(seedOf(hand12)); // common random numbers across contracts (see mcEvaluateHand)
     let won = 0;
     let scoreSum = 0;
     for (let k = 0; k < K; k++) {
       const sh = shuffle(rest, rnd);
-      const deal: Deal = { hands: [h10.slice(), sh.slice(0, 10), sh.slice(10, 20)], skat: sk2 };
-      const res = playoutResult(deal, contract, params);
+      const deal: Deal = { hands: seatHands(h10, sh.slice(0, 10), sh.slice(10, 20), declSeat), skat: sk2 };
+      const res = playoutResult(deal, contract, params, false, declSeat);
       if (res.won) won++;
       scoreSum += res.won ? res.value : -2 * res.value;
     }
@@ -248,14 +273,15 @@ export function mcEvaluateHand12(hand12: Card[], params: BotParams = DEFAULT_PAR
   }
   // hand:false throughout -- once the skat is taken, a closed hand game is no longer possible.
   const result: McResult = { contract: bestContract, hand: false, ceiling: bestEv > 0 ? bestValue : 0, ceilingAny, ev: bestEv, posGames };
-  if (cache) { if (memo12.size > 4096) memo12.clear(); memo12.set(key, result); }
+  if (memo.size > 4096) memo.clear();
+  memo.set(key, result);
   return result;
 }
 
 // Bidding via the MC ceiling (mirrors the formula bidder's auction logic, but the
 // ceiling is the simulated best contract's value).
 export function mcBidAction(s: RoundState, seat: Seat, p: BotParams): Action {
-  const r = mcEvaluateHand(s.hands[seat], p);
+  const r = mcEvaluateHand(s.hands[seat], p, seat);
   // With mcAnyPositiveEV the bot holds the auction up to the most valuable +EV game, not
   // just its single best game -- so a bid past the best game doesn't make it drop a game
   // it would still profitably play.
@@ -289,14 +315,14 @@ export function mcDeclareAction(s: RoundState, seat: Seat, p: BotParams): Action
 
   if (s.declareStep === 'choose') {
     if (!p.mcHandGame) return { type: 'takeSkat', seat };
-    const plan = bestCoveringPlan(mcEvaluateHand(hand, p), s.bid, hand, !!p.mcAnyPositiveEV);
+    const plan = bestCoveringPlan(mcEvaluateHand(hand, p, seat), s.bid, hand, !!p.mcAnyPositiveEV);
     return plan.hand ? { type: 'playHand', seat } : { type: 'takeSkat', seat };
   }
 
   // Hand game (we declined the skat at 'choose'): declare the best covering CLOSED game,
   // with the schneider/schwarz announcement the rollouts judged best (mcAnnounce).
   if (!s.tookSkat) {
-    const ev = mcEvaluateHand(hand, p);
+    const ev = mcEvaluateHand(hand, p, seat);
     const gvh = (c: Contract) => (c.type === 'null' ? previewGameValue(c, 0, { hand: true }) : previewGameValue(c, countMatadors(hand, c), { hand: true }));
     const plan = bestCoveringPlan(ev, s.bid, hand, !!p.mcAnyPositiveEV);
     let contract = plan.contract;
@@ -319,7 +345,7 @@ export function mcDeclareAction(s: RoundState, seat: Seat, p: BotParams): Action
   const orig = hand.length > 10 ? hand.slice(0, 10) : hand;
   // mcPostSkat: re-evaluate with the actual 12 cards (the skat may have changed the best
   // game); otherwise use the bid-time 10-card estimate.
-  const ev = p.mcPostSkat && hand.length > 10 ? mcEvaluateHand12(hand, p) : mcEvaluateHand(orig, p);
+  const ev = p.mcPostSkat && hand.length > 10 ? mcEvaluateHand12(hand, p, seat) : mcEvaluateHand(orig, p, seat);
   let contract = ev.contract;
   // Safety: the declared contract must cover the won bid (value uses the full 12 cards).
   const gv = (c: Contract) => (c.type === 'null' ? previewGameValue(c, 0, {}) : previewGameValue(c, countMatadors(hand, c), {}));
